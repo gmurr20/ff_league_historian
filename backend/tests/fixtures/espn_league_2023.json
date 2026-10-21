@@ -1,0 +1,418 @@
+{
+  "seasonId": 2023,
+  "status": {
+    "currentMatchupPeriod": 17,
+    "finalScoringPeriod": 17,
+    "isActive": false
+  },
+  "settings": {
+    "name": "The League of Extraordinary Gentlemen",
+    "scheduleSettings": {
+      "matchupPeriodCount": 14,
+      "playoffTeamCount": 6,
+      "playoffMatchupPeriodLength": 1
+    },
+    "scoringSettings": {
+      "scoringType": "PPR"
+    },
+    "acquisitionSettings": {
+      "acquisitionBudget": 100
+    }
+  },
+  "members": [
+    {
+      "id": "{AAAA-0001-ARCHER}",
+      "displayName": "Alice Archer",
+      "firstName": "Alice",
+      "lastName": "Archer"
+    },
+    {
+      "id": "{BBBB-0002-BAKER}",
+      "displayName": "Bob Baker",
+      "firstName": "Bob",
+      "lastName": "Baker"
+    },
+    {
+      "id": "{CCCC-0003-CLARK}",
+      "displayName": "Charlie Clark",
+      "firstName": "Charlie",
+      "lastName": "Clark"
+    },
+    {
+      "id": "{DDDD-0004-DAVIS}",
+      "displayName": "Diana Davis",
+      "firstName": "Diana",
+      "lastName": "Davis"
+    },
+    {
+      "id": "{EEEE-0005-EVANS}",
+      "displayName": "Evan Evans",
+      "firstName": "Evan",
+      "lastName": "Evans"
+    },
+    {
+      "id": "{FFFF-0006-FORD}",
+      "displayName": "Frankie Ford",
+      "firstName": "Frankie",
+      "lastName": "Ford"
+    },
+    {
+      "id": "{GGGG-0007-GREEN}",
+      "displayName": "Grace Green",
+      "firstName": "Grace",
+      "lastName": "Green"
+    },
+    {
+      "id": "{CO-OWNER-MEMBER-GUID}",
+      "displayName": "Hank Hill",
+      "firstName": "Hank",
+      "lastName": "Hill"
+    },
+    {
+      "id": "{RRRR-0010-RACHEL}",
+      "displayName": "Rookie Rachel",
+      "firstName": "Rachel",
+      "lastName": "Rookie"
+    }
+  ],
+  "teams": [
+    {
+      "id": 1,
+      "name": "Archer Assassins",
+      "abbrev": "ARC",
+      "primaryOwner": "{AAAA-0001-ARCHER}",
+      "owners": ["{AAAA-0001-ARCHER}"],
+      "divisionId": 1,
+      "points": 1810.20,
+      "pointsAgainst": 1540.00,
+      "playoffSeed": 1,
+      "rankCalculatedFinal": 1,
+      "record": {
+        "overall": {"wins": 10, "losses": 3, "ties": 1, "pointsFor": 1810.20, "pointsAgainst": 1540.00, "streakType": "WIN", "streakLength": 4},
+        "home": {"wins": 5, "losses": 1, "ties": 1},
+        "away": {"wins": 5, "losses": 2, "ties": 0},
+        "division": {"wins": 4, "losses": 1, "ties": 1}
+      },
+      "transactionCounter": {"acquisitionBudgetSpent": 35, "acquisitions": 18, "drops": 15, "trades": 2, "moveToIR": 4}
+    },
+    {
+      "id": 2,
+      "name": "Baker's Dozen",
+      "abbrev": "BAK",
+      "primaryOwner": "{BBBB-0002-BAKER}",
+      "owners": ["{BBBB-0002-BAKER}"],
+      "divisionId": 1,
+      "points": 1720.00,
+      "pointsAgainst": 1580.00,
+      "playoffSeed": 2,
+      "rankCalculatedFinal": 2,
+      "record": {
+        "overall": {"wins": 9, "losses": 5, "ties": 0, "pointsFor": 1720.00, "pointsAgainst": 1580.00},
+        "home": {"wins": 5, "losses": 2, "ties": 0},
+        "away": {"wins": 4, "losses": 3, "ties": 0},
+        "division": {"wins": 3, "losses": 3, "ties": 0}
+      },
+      "transactionCounter": {"acquisitionBudgetSpent": 45, "acquisitions": 14, "drops": 13, "trades": 1, "moveToIR": 2}
+    },
+    {
+      "id": 3,
+      "name": "Clark's Crusaders",
+      "abbrev": "CLK",
+      "primaryOwner": "{CCCC-0003-CLARK}",
+      "owners": ["{CCCC-0003-CLARK}"],
+      "divisionId": 1,
+      "points": 1690.00,
+      "pointsAgainst": 1600.00,
+      "playoffSeed": 3,
+      "rankCalculatedFinal": 3,
+      "record": {
+        "overall": {"wins": 8, "losses": 5, "ties": 1, "pointsFor": 1690.00, "pointsAgainst": 1600.00},
+        "home": {"wins": 4, "losses": 2, "ties": 1},
+        "away": {"wins": 4, "losses": 3, "ties": 0},
+        "division": {"wins": 2, "losses": 3, "ties": 1}
+      },
+      "transactionCounter": {"acquisitionBudgetSpent": 15, "acquisitions": 10, "drops": 10, "trades": 0, "moveToIR": 1}
+    },
+    {
+      "id": 4,
+      "name": "Diana's Dynasty",
+      "abbrev": "DYN",
+      "primaryOwner": "{DDDD-0004-DAVIS}",
+      "owners": ["{DDDD-0004-DAVIS}"],
+      "divisionId": 1,
+      "points": 1620.00,
+      "pointsAgainst": 1630.00,
+      "playoffSeed": 4,
+      "rankCalculatedFinal": 4,
+      "record": {
+        "overall": {"wins": 7, "losses": 7, "ties": 0, "pointsFor": 1620.00, "pointsAgainst": 1630.00},
+        "home": {"wins": 4, "losses": 3, "ties": 0},
+        "away": {"wins": 3, "losses": 4, "ties": 0},
+        "division": {"wins": 2, "losses": 4, "ties": 0}
+      },
+      "transactionCounter": {"acquisitionBudgetSpent": 20, "acquisitions": 8, "drops": 8, "trades": 0, "moveToIR": 1}
+    },
+    {
+      "id": 5,
+      "name": "Evans Elevation",
+      "abbrev": "EVN",
+      "primaryOwner": "{EEEE-0005-EVANS}",
+      "owners": ["{EEEE-0005-EVANS}"],
+      "divisionId": 2,
+      "points": 1580.00,
+      "pointsAgainst": 1640.00,
+      "playoffSeed": 5,
+      "rankCalculatedFinal": 5,
+      "record": {
+        "overall": {"wins": 7, "losses": 7, "ties": 0, "pointsFor": 1580.00, "pointsAgainst": 1640.00},
+        "home": {"wins": 4, "losses": 3, "ties": 0},
+        "away": {"wins": 3, "losses": 4, "ties": 0},
+        "division": {"wins": 3, "losses": 3, "ties": 0}
+      },
+      "transactionCounter": {"acquisitionBudgetSpent": 30, "acquisitions": 9, "drops": 8, "trades": 0, "moveToIR": 2}
+    },
+    {
+      "id": 6,
+      "name": "Ford Tough",
+      "abbrev": "FRD",
+      "primaryOwner": "{FFFF-0006-FORD}",
+      "owners": ["{FFFF-0006-FORD}"],
+      "divisionId": 2,
+      "points": 1550.00,
+      "pointsAgainst": 1660.00,
+      "playoffSeed": 6,
+      "rankCalculatedFinal": 6,
+      "record": {
+        "overall": {"wins": 6, "losses": 8, "ties": 0, "pointsFor": 1550.00, "pointsAgainst": 1660.00},
+        "home": {"wins": 3, "losses": 4, "ties": 0},
+        "away": {"wins": 3, "losses": 4, "ties": 0},
+        "division": {"wins": 2, "losses": 4, "ties": 0}
+      },
+      "transactionCounter": {"acquisitionBudgetSpent": 25, "acquisitions": 7, "drops": 7, "trades": 0, "moveToIR": 1}
+    },
+    {
+      "id": 7,
+      "name": "Green Hill Zone",
+      "abbrev": "GHZ",
+      "primaryOwner": "{GGGG-0007-GREEN}",
+      "owners": ["{GGGG-0007-GREEN}", "{CO-OWNER-MEMBER-GUID}"],
+      "divisionId": 2,
+      "points": 1510.00,
+      "pointsAgainst": 1690.00,
+      "playoffSeed": 7,
+      "rankCalculatedFinal": 7,
+      "record": {
+        "overall": {"wins": 5, "losses": 9, "ties": 0, "pointsFor": 1510.00, "pointsAgainst": 1690.00},
+        "home": {"wins": 3, "losses": 4, "ties": 0},
+        "away": {"wins": 2, "losses": 5, "ties": 0},
+        "division": {"wins": 2, "losses": 4, "ties": 0}
+      },
+      "transactionCounter": {"acquisitionBudgetSpent": 10, "acquisitions": 5, "drops": 5, "trades": 0, "moveToIR": 0}
+    },
+    {
+      "id": 8,
+      "name": "Rachel's Rookies",
+      "abbrev": "RCH",
+      "primaryOwner": "{RRRR-0010-RACHEL}",
+      "owners": ["{RRRR-0010-RACHEL}"],
+      "divisionId": 2,
+      "points": 1470.00,
+      "pointsAgainst": 1720.00,
+      "playoffSeed": 8,
+      "rankCalculatedFinal": 8,
+      "record": {
+        "overall": {"wins": 4, "losses": 10, "ties": 0, "pointsFor": 1470.00, "pointsAgainst": 1720.00},
+        "home": {"wins": 2, "losses": 5, "ties": 0},
+        "away": {"wins": 2, "losses": 5, "ties": 0},
+        "division": {"wins": 1, "losses": 5, "ties": 0}
+      },
+      "transactionCounter": {"acquisitionBudgetSpent": 5, "acquisitions": 4, "drops": 4, "trades": 0, "moveToIR": 0}
+    }
+  ],
+  "schedule": [
+    {
+      "id": 1101,
+      "matchupPeriodId": 1,
+      "playoffTierType": "NONE",
+      "winner": "HOME",
+      "home": {
+        "teamId": 1,
+        "totalPoints": 132.50,
+        "pointsByScoringPeriod": {"1": 132.50}
+      },
+      "away": {
+        "teamId": 2,
+        "totalPoints": 118.00,
+        "pointsByScoringPeriod": {"1": 118.00}
+      }
+    },
+    {
+      "id": 1102,
+      "matchupPeriodId": 3,
+      "playoffTierType": "NONE",
+      "winner": "TIE",
+      "home": {
+        "teamId": 1,
+        "totalPoints": 114.50,
+        "pointsByScoringPeriod": {"3": 114.50}
+      },
+      "away": {
+        "teamId": 3,
+        "totalPoints": 114.50,
+        "pointsByScoringPeriod": {"3": 114.50}
+      }
+    },
+    {
+      "id": 1103,
+      "matchupPeriodId": 3,
+      "playoffTierType": "NONE",
+      "winner": "HOME",
+      "home": {
+        "teamId": 2,
+        "totalPoints": 122.00,
+        "pointsByScoringPeriod": {"3": 122.00}
+      },
+      "away": {
+        "teamId": 4,
+        "totalPoints": 105.00,
+        "pointsByScoringPeriod": {"3": 105.00}
+      }
+    },
+    {
+      "id": 1201,
+      "matchupPeriodId": 15,
+      "playoffTierType": "NONE",
+      "winner": "HOME",
+      "home": {
+        "teamId": 1,
+        "totalPoints": 124.00,
+        "pointsByScoringPeriod": {"15": 124.00}
+      },
+      "away": null
+    },
+    {
+      "id": 1202,
+      "matchupPeriodId": 15,
+      "playoffTierType": "NONE",
+      "winner": "HOME",
+      "home": {
+        "teamId": 2,
+        "totalPoints": 120.00,
+        "pointsByScoringPeriod": {"15": 120.00}
+      },
+      "away": null
+    },
+    {
+      "id": 1203,
+      "matchupPeriodId": 15,
+      "playoffTierType": "WINNERS_BRACKET",
+      "winner": "HOME",
+      "home": {
+        "teamId": 3,
+        "totalPoints": 128.00,
+        "pointsByScoringPeriod": {"15": 128.00}
+      },
+      "away": {
+        "teamId": 6,
+        "totalPoints": 112.00,
+        "pointsByScoringPeriod": {"15": 112.00}
+      }
+    },
+    {
+      "id": 1204,
+      "matchupPeriodId": 15,
+      "playoffTierType": "WINNERS_BRACKET",
+      "winner": "HOME",
+      "home": {
+        "teamId": 4,
+        "totalPoints": 119.00,
+        "pointsByScoringPeriod": {"15": 119.00}
+      },
+      "away": {
+        "teamId": 5,
+        "totalPoints": 110.00,
+        "pointsByScoringPeriod": {"15": 110.00}
+      }
+    },
+    {
+      "id": 1205,
+      "matchupPeriodId": 15,
+      "playoffTierType": "LOSERS_CONSOLATION_LADDER",
+      "winner": "HOME",
+      "home": {
+        "teamId": 7,
+        "totalPoints": 105.00,
+        "pointsByScoringPeriod": {"15": 105.00}
+      },
+      "away": {
+        "teamId": 8,
+        "totalPoints": 98.00,
+        "pointsByScoringPeriod": {"15": 98.00}
+      }
+    },
+    {
+      "id": 1301,
+      "matchupPeriodId": 16,
+      "playoffTierType": "WINNERS_BRACKET",
+      "winner": "HOME",
+      "home": {
+        "teamId": 1,
+        "totalPoints": 142.00,
+        "pointsByScoringPeriod": {"16": 142.00}
+      },
+      "away": {
+        "teamId": 4,
+        "totalPoints": 125.00,
+        "pointsByScoringPeriod": {"16": 125.00}
+      }
+    },
+    {
+      "id": 1302,
+      "matchupPeriodId": 16,
+      "playoffTierType": "WINNERS_BRACKET",
+      "winner": "HOME",
+      "home": {
+        "teamId": 2,
+        "totalPoints": 138.00,
+        "pointsByScoringPeriod": {"16": 138.00}
+      },
+      "away": {
+        "teamId": 3,
+        "totalPoints": 121.00,
+        "pointsByScoringPeriod": {"16": 121.00}
+      }
+    },
+    {
+      "id": 1401,
+      "matchupPeriodId": 17,
+      "playoffTierType": "WINNERS_BRACKET",
+      "winner": "HOME",
+      "home": {
+        "teamId": 1,
+        "totalPoints": 145.50,
+        "pointsByScoringPeriod": {"16": 70.00, "17": 75.50}
+      },
+      "away": {
+        "teamId": 2,
+        "totalPoints": 138.20,
+        "pointsByScoringPeriod": {"16": 68.00, "17": 70.20}
+      }
+    },
+    {
+      "id": 1402,
+      "matchupPeriodId": 17,
+      "playoffTierType": "WINNERS_BRACKET",
+      "winner": "HOME",
+      "home": {
+        "teamId": 3,
+        "totalPoints": 128.00,
+        "pointsByScoringPeriod": {"17": 128.00}
+      },
+      "away": {
+        "teamId": 4,
+        "totalPoints": 112.00,
+        "pointsByScoringPeriod": {"17": 112.00}
+      }
+    }
+  ]
+}

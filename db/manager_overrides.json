@@ -1,0 +1,29 @@
+{
+  "_comment": "Declarative manager identity overrides for legacy seasons, owner account transitions, or aliases.",
+  "guid_to_canonical_guid": {
+    "{LEGACY-MEMBER-GUID-2017}": "{CANONICAL-MGR-01}",
+    "{CO-OWNER-MEMBER-GUID}": "{CANONICAL-MGR-07}"
+  },
+  "team_season_overrides": [
+    {
+      "season_year": 2017,
+      "espn_team_id": 1,
+      "canonical_manager_guid": "{CANONICAL-MGR-01}",
+      "notes": "Pre-2018 team owner account migration prior to persistent member GUIDs"
+    },
+    {
+      "season_year": 2018,
+      "espn_team_id": 5,
+      "canonical_manager_guid": "{CANONICAL-MGR-05}",
+      "notes": "Re-associated team after manager recreated ESPN account"
+    }
+  ],
+  "overrides": [
+    {
+      "source_espn_member_id": "{OLD-GUID-OR-NAME}",
+      "target_manager_id": 1,
+      "target_display_name": "Official Manager Name",
+      "notes": "Merged 2017 historical account"
+    }
+  ]
+}

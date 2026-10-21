@@ -1,0 +1,568 @@
+{
+  "seasonId": 2023,
+  "status": {
+    "currentMatchupPeriod": 17,
+    "finalScoringPeriod": 17,
+    "isActive": false
+  },
+  "settings": {
+    "name": "The League of Extraordinary Gentlemen",
+    "scheduleSettings": {
+      "matchupPeriodCount": 14,
+      "playoffTeamCount": 6,
+      "playoffMatchupPeriodLength": 1
+    },
+    "scoringSettings": {
+      "scoringType": "PPR"
+    },
+    "rosterSettings": {
+      "lineupSlotCounts": {
+        "0": 1,
+        "2": 2,
+        "4": 2,
+        "6": 1,
+        "23": 1,
+        "16": 1,
+        "17": 1,
+        "20": 7,
+        "21": 1
+      }
+    },
+    "acquisitionSettings": {
+      "acquisitionBudget": 100
+    }
+  },
+  "members": [
+    {
+      "id": "{AAAA-0001-ARCHER}",
+      "displayName": "Alice Archer",
+      "firstName": "Alice",
+      "lastName": "Archer"
+    },
+    {
+      "id": "{BBBB-0002-BAKER}",
+      "displayName": "Bob Baker",
+      "firstName": "Bob",
+      "lastName": "Baker"
+    },
+    {
+      "id": "{CCCC-0003-CLARK}",
+      "displayName": "Charlie Clark",
+      "firstName": "Charlie",
+      "lastName": "Clark"
+    },
+    {
+      "id": "{DDDD-0004-DAVIS}",
+      "displayName": "Diana Davis",
+      "firstName": "Diana",
+      "lastName": "Davis"
+    }
+  ],
+  "teams": [
+    {
+      "id": 1,
+      "name": "Archer Assassins",
+      "abbrev": "ARC",
+      "primaryOwner": "{AAAA-0001-ARCHER}",
+      "owners": ["{AAAA-0001-ARCHER}"],
+      "divisionId": 1,
+      "points": 1820.5,
+      "pointsAgainst": 1640.2,
+      "playoffSeed": 1,
+      "rankCalculatedFinal": 1,
+      "record": {
+        "overall": {"wins": 10, "losses": 4, "ties": 0},
+        "home": {"wins": 5, "losses": 2, "ties": 0},
+        "away": {"wins": 5, "losses": 2, "ties": 0},
+        "division": {"wins": 4, "losses": 2, "ties": 0}
+      }
+    },
+    {
+      "id": 2,
+      "name": "Baker's Dozen",
+      "abbrev": "BAK",
+      "primaryOwner": "{BBBB-0002-BAKER}",
+      "owners": ["{BBBB-0002-BAKER}"],
+      "divisionId": 1,
+      "points": 1780.0,
+      "pointsAgainst": 1690.0,
+      "playoffSeed": 2,
+      "rankCalculatedFinal": 2,
+      "record": {
+        "overall": {"wins": 9, "losses": 5, "ties": 0},
+        "home": {"wins": 5, "losses": 2, "ties": 0},
+        "away": {"wins": 4, "losses": 3, "ties": 0},
+        "division": {"wins": 3, "losses": 3, "ties": 0}
+      }
+    },
+    {
+      "id": 3,
+      "name": "Clark's Crusaders",
+      "abbrev": "CLK",
+      "primaryOwner": "{CCCC-0003-CLARK}",
+      "owners": ["{CCCC-0003-CLARK}"],
+      "divisionId": 1,
+      "points": 1650.0,
+      "pointsAgainst": 1710.0,
+      "playoffSeed": 3,
+      "rankCalculatedFinal": 3,
+      "record": {
+        "overall": {"wins": 7, "losses": 7, "ties": 0},
+        "home": {"wins": 4, "losses": 3, "ties": 0},
+        "away": {"wins": 3, "losses": 4, "ties": 0},
+        "division": {"wins": 2, "losses": 4, "ties": 0}
+      }
+    },
+    {
+      "id": 4,
+      "name": "Diana's Dynasty",
+      "abbrev": "DYN",
+      "primaryOwner": "{DDDD-0004-DAVIS}",
+      "owners": ["{DDDD-0004-DAVIS}"],
+      "divisionId": 1,
+      "points": 1590.0,
+      "pointsAgainst": 1750.0,
+      "playoffSeed": 4,
+      "rankCalculatedFinal": 4,
+      "record": {
+        "overall": {"wins": 6, "losses": 8, "ties": 0},
+        "home": {"wins": 3, "losses": 4, "ties": 0},
+        "away": {"wins": 3, "losses": 4, "ties": 0},
+        "division": {"wins": 3, "losses": 3, "ties": 0}
+      }
+    }
+  ],
+  "schedule": [
+    {
+      "id": 1,
+      "matchupPeriodId": 1,
+      "playoffTierType": "NONE",
+      "winner": "HOME",
+      "home": {
+        "teamId": 1,
+        "totalPoints": 134.0,
+        "rosterForCurrentScoringPeriod": {
+          "entries": [
+            {
+              "lineupSlotId": 0,
+              "playerPoolEntry": {
+                "id": 103,
+                "appliedStatTotal": 25.0,
+                "projectedStatTotal": 20.0,
+                "acquisitionType": "DRAFT",
+                "player": {
+                  "id": 103,
+                  "fullName": "Josh Allen",
+                  "defaultPositionId": 1,
+                  "proTeamId": 2
+                }
+              }
+            },
+            {
+              "lineupSlotId": 2,
+              "playerPoolEntry": {
+                "id": 101,
+                "appliedStatTotal": 22.0,
+                "projectedStatTotal": 18.0,
+                "acquisitionType": "DRAFT",
+                "player": {
+                  "id": 101,
+                  "fullName": "Christian McCaffrey",
+                  "defaultPositionId": 2,
+                  "proTeamId": 25
+                }
+              }
+            },
+            {
+              "lineupSlotId": 2,
+              "playerPoolEntry": {
+                "id": 108,
+                "appliedStatTotal": 14.0,
+                "projectedStatTotal": 15.0,
+                "acquisitionType": "DRAFT",
+                "player": {
+                  "id": 108,
+                  "fullName": "Bijan Robinson",
+                  "defaultPositionId": 2,
+                  "proTeamId": 1
+                }
+              }
+            },
+            {
+              "lineupSlotId": 4,
+              "playerPoolEntry": {
+                "id": 104,
+                "appliedStatTotal": 18.0,
+                "projectedStatTotal": 16.0,
+                "acquisitionType": "DRAFT",
+                "player": {
+                  "id": 104,
+                  "fullName": "CeeDee Lamb",
+                  "defaultPositionId": 3,
+                  "proTeamId": 6
+                }
+              }
+            },
+            {
+              "lineupSlotId": 4,
+              "playerPoolEntry": {
+                "id": 105,
+                "appliedStatTotal": 16.0,
+                "projectedStatTotal": 14.0,
+                "acquisitionType": "DRAFT",
+                "player": {
+                  "id": 105,
+                  "fullName": "Amon-Ra St. Brown",
+                  "defaultPositionId": 3,
+                  "proTeamId": 8
+                }
+              }
+            },
+            {
+              "lineupSlotId": 6,
+              "playerPoolEntry": {
+                "id": 109,
+                "appliedStatTotal": 12.0,
+                "projectedStatTotal": 11.0,
+                "acquisitionType": "DRAFT",
+                "player": {
+                  "id": 109,
+                  "fullName": "Travis Kelce",
+                  "defaultPositionId": 4,
+                  "proTeamId": 12
+                }
+              }
+            },
+            {
+              "lineupSlotId": 23,
+              "playerPoolEntry": {
+                "id": 111,
+                "appliedStatTotal": 10.0,
+                "projectedStatTotal": 12.0,
+                "acquisitionType": "DRAFT",
+                "player": {
+                  "id": 111,
+                  "fullName": "Garrett Wilson",
+                  "defaultPositionId": 3,
+                  "proTeamId": 20
+                }
+              }
+            },
+            {
+              "lineupSlotId": 16,
+              "playerPoolEntry": {
+                "id": 16025,
+                "appliedStatTotal": 8.0,
+                "projectedStatTotal": 7.0,
+                "acquisitionType": "DRAFT",
+                "player": {
+                  "id": 16025,
+                  "fullName": "49ers D/ST",
+                  "defaultPositionId": 16,
+                  "proTeamId": 25
+                }
+              }
+            },
+            {
+              "lineupSlotId": 17,
+              "playerPoolEntry": {
+                "id": 999,
+                "appliedStatTotal": 9.0,
+                "projectedStatTotal": 8.0,
+                "acquisitionType": "DRAFT",
+                "player": {
+                  "id": 999,
+                  "fullName": "Justin Tucker",
+                  "defaultPositionId": 5,
+                  "proTeamId": 33
+                }
+              }
+            },
+            {
+              "lineupSlotId": 20,
+              "playerPoolEntry": {
+                "id": 107,
+                "appliedStatTotal": 24.0,
+                "projectedStatTotal": 12.0,
+                "acquisitionType": "DRAFT",
+                "player": {
+                  "id": 107,
+                  "fullName": "Kyren Williams",
+                  "defaultPositionId": 2,
+                  "proTeamId": 14
+                }
+              }
+            },
+            {
+              "lineupSlotId": 20,
+              "playerPoolEntry": {
+                "id": 106,
+                "appliedStatTotal": 15.0,
+                "projectedStatTotal": 9.0,
+                "acquisitionType": "DRAFT",
+                "player": {
+                  "id": 106,
+                  "fullName": "Puka Nacua",
+                  "defaultPositionId": 3,
+                  "proTeamId": 14
+                }
+              }
+            },
+            {
+              "lineupSlotId": 21,
+              "playerPoolEntry": {
+                "id": 199,
+                "appliedStatTotal": 35.0,
+                "projectedStatTotal": 0.0,
+                "acquisitionType": "DRAFT",
+                "player": {
+                  "id": 199,
+                  "fullName": "Nick Chubb",
+                  "defaultPositionId": 2,
+                  "proTeamId": 5
+                }
+              }
+            }
+          ]
+        }
+      },
+      "away": {
+        "teamId": 2,
+        "totalPoints": 105.0,
+        "rosterForCurrentScoringPeriod": {
+          "entries": [
+            {
+              "lineupSlotId": 0,
+              "playerPoolEntry": {
+                "id": 113,
+                "appliedStatTotal": 20.0,
+                "projectedStatTotal": 19.0,
+                "acquisitionType": "DRAFT",
+                "player": {
+                  "id": 113,
+                  "fullName": "Patrick Mahomes",
+                  "defaultPositionId": 1,
+                  "proTeamId": 12
+                }
+              }
+            },
+            {
+              "lineupSlotId": 2,
+              "playerPoolEntry": {
+                "id": 110,
+                "appliedStatTotal": 15.0,
+                "projectedStatTotal": 14.0,
+                "acquisitionType": "DRAFT",
+                "player": {
+                  "id": 110,
+                  "fullName": "Breece Hall",
+                  "defaultPositionId": 2,
+                  "proTeamId": 20
+                }
+              }
+            },
+            {
+              "lineupSlotId": 20,
+              "playerPoolEntry": {
+                "id": 112,
+                "appliedStatTotal": 12.0,
+                "projectedStatTotal": 10.0,
+                "acquisitionType": "DRAFT",
+                "player": {
+                  "id": 112,
+                  "fullName": "Jahmyr Gibbs",
+                  "defaultPositionId": 2,
+                  "proTeamId": 8
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "transactions": [
+    {
+      "id": "tx_puka_win",
+      "type": "WAIVER",
+      "status": "EXECUTED",
+      "teamId": 1,
+      "scoringPeriodId": 2,
+      "matchupPeriodId": 2,
+      "bidAmount": 35,
+      "subOrder": 3,
+      "proposedDate": 1694512800000,
+      "executionDate": 1694592000000,
+      "isActingAsTeamOwner": true,
+      "items": [
+        {
+          "playerId": 106,
+          "type": "ADD",
+          "fromTeamId": 0,
+          "toTeamId": 1,
+          "playerPoolEntry": {
+            "player": {
+              "id": 106,
+              "fullName": "Puka Nacua",
+              "defaultPositionId": 3,
+              "proTeamId": 14
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "tx_puka_loss_t2",
+      "type": "WAIVER",
+      "status": "WAIVER_ERROR",
+      "processMessage": "OUTBID by higher bid",
+      "teamId": 2,
+      "scoringPeriodId": 2,
+      "matchupPeriodId": 2,
+      "bidAmount": 27,
+      "subOrder": 5,
+      "proposedDate": 1694515000000,
+      "relatedTransactionId": "tx_puka_win",
+      "items": [
+        {
+          "playerId": 106,
+          "type": "ADD",
+          "fromTeamId": 0,
+          "toTeamId": 2
+        }
+      ]
+    },
+    {
+      "id": "tx_puka_loss_t3",
+      "type": "WAIVER",
+      "status": "FAILED",
+      "failureReason": "OUTBID",
+      "teamId": 3,
+      "scoringPeriodId": 2,
+      "matchupPeriodId": 2,
+      "bidAmount": 19,
+      "subOrder": 6,
+      "proposedDate": 1694516000000,
+      "items": [
+        {
+          "playerId": 106,
+          "type": "ADD",
+          "fromTeamId": 0,
+          "toTeamId": 3
+        }
+      ]
+    },
+    {
+      "id": "tx_puka_loss_t4",
+      "type": "WAIVER",
+      "status": "WAIVER_ERROR",
+      "processMessage": "INSUFFICIENT_FUNDS to cover bid",
+      "teamId": 4,
+      "scoringPeriodId": 2,
+      "matchupPeriodId": 2,
+      "bidAmount": 40,
+      "proposedDate": 1694517000000,
+      "items": [
+        {
+          "playerId": 106,
+          "type": "ADD",
+          "fromTeamId": 0,
+          "toTeamId": 4
+        }
+      ]
+    },
+    {
+      "id": "tx_fa_laporta",
+      "type": "FREEAGENT",
+      "status": "EXECUTED",
+      "teamId": 3,
+      "scoringPeriodId": 4,
+      "matchupPeriodId": 4,
+      "bidAmount": 0,
+      "executionDate": 1695828600000,
+      "items": [
+        {
+          "playerId": 118,
+          "type": "ADD",
+          "fromTeamId": 0,
+          "toTeamId": 3,
+          "playerPoolEntry": {
+            "player": {
+              "id": 118,
+              "fullName": "Sam LaPorta",
+              "defaultPositionId": 4,
+              "proTeamId": 8
+            }
+          }
+        },
+        {
+          "playerId": 120,
+          "type": "DROP",
+          "fromTeamId": 3,
+          "toTeamId": 0,
+          "playerPoolEntry": {
+            "player": {
+              "id": 120,
+              "fullName": "Ja'Marr Chase",
+              "defaultPositionId": 3,
+              "proTeamId": 4
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "trade_accept_t1_t2",
+      "type": "TRADE_ACCEPT",
+      "status": "EXECUTED",
+      "teamId": 1,
+      "scoringPeriodId": 6,
+      "matchupPeriodId": 6,
+      "proposingTeamId": 1,
+      "acceptingTeamId": 2,
+      "faabFromAccepter": 10,
+      "tradeSummary": {
+        "note": "Kyren for Wilson + 10 FAAB"
+      },
+      "proposedDate": 1697544000000,
+      "executionDate": 1697619600000,
+      "items": [
+        {
+          "playerId": 107,
+          "type": "TRADE",
+          "fromTeamId": 1,
+          "toTeamId": 2
+        },
+        {
+          "playerId": 111,
+          "type": "TRADE",
+          "fromTeamId": 2,
+          "toTeamId": 1
+        }
+      ]
+    },
+    {
+      "id": "trade_uphold_t1_t2",
+      "type": "TRADE_UPHOLD",
+      "status": "EXECUTED",
+      "teamId": 1,
+      "scoringPeriodId": 6,
+      "matchupPeriodId": 6,
+      "relatedTransactionId": "trade_accept_t1_t2",
+      "items": [
+        {
+          "playerId": 107,
+          "type": "TRADE",
+          "fromTeamId": 1,
+          "toTeamId": 2
+        },
+        {
+          "playerId": 111,
+          "type": "TRADE",
+          "fromTeamId": 2,
+          "toTeamId": 1
+        }
+      ]
+    }
+  ]
+}

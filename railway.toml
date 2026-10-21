@@ -1,0 +1,60 @@
+# railway.toml - Railway Multi-Service Production Configuration
+#
+# Architecture Services:
+# 1. Database: Managed PostgreSQL 16
+# 2. API Service: Flask 3 / SQLAlchemy / Gunicorn REST API (backend/)
+# 3. PWA Frontend: Vue 3 / NGINX Static Service (frontend/)
+# 4. Weekly Sync Cron Worker: Incremental rolling sync (backend.jobs.sync_weekly)
+# 5. One-Time Historical Backfill: Historical ingestion job (backend.jobs.backfill_history)
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "backend/Dockerfile"
+
+[deploy]
+startCommand = "gunicorn -c backend/gunicorn.conf.py \"backend.app:create_app()\""
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+
+# ------------------------------------------------------------------------------
+# Service 1: PostgreSQL 16 Database Service
+# ------------------------------------------------------------------------------
+# Provisioned via Railway managed PostgreSQL plugin.
+# Connect via DATABASE_URL=postgresql+psycopg://...
+
+# ------------------------------------------------------------------------------
+# Service 2: Flask 3 REST API Service (backend)
+# ------------------------------------------------------------------------------
+[services.api]
+dockerfilePath = "backend/Dockerfile"
+startCommand = "gunicorn -c backend/gunicorn.conf.py \"backend.app:create_app()\""
+healthcheckPath = "/api/v1/health"
+healthcheckTimeout = 100
+restartPolicyType = "ON_FAILURE"
+
+# ------------------------------------------------------------------------------
+# Service 3: Vue 3 Mobile PWA Frontend Service (frontend)
+# ------------------------------------------------------------------------------
+[services.frontend]
+dockerfilePath = "frontend/Dockerfile"
+restartPolicyType = "ON_FAILURE"
+
+# ------------------------------------------------------------------------------
+# Service 4: Weekly Rolling Cron Worker (backend)
+# ------------------------------------------------------------------------------
+# Schedule: Every Tuesday and Thursday morning at 10:00 UTC (05:00 CST / 06:00 EST).
+# Finalizes Monday Night Football matchups, reconciles NFL/Elias stat corrections,
+# awards regular season cash payouts, and transitions season at championship finalization.
+[services.cron-weekly-sync]
+dockerfilePath = "backend/Dockerfile"
+cronSchedule = "0 10 * * 2,4"
+startCommand = "python -m backend.jobs.sync_weekly"
+restartPolicyType = "NEVER"
+
+# ------------------------------------------------------------------------------
+# Task 5: One-Time Historical Backfill Job (Reference Runbook)
+# ------------------------------------------------------------------------------
+# To perform one-time historical ingestion of all completed seasons:
+#   railway run python -m backend.jobs.backfill_history
+# Or for zero-network database rebuilds from archived raw_espn_snapshots:
+#   railway run python -m backend.jobs.backfill_history --from-snapshots

@@ -34,9 +34,9 @@ Because **changing the database schema after application code depends on it is e
 
 ---
 
-## 2. Maximal ESPN Data Strategy (Inspired by FantasyHofF Audit)
+## 2. Maximal ESPN Data Strategy
 
-Auditing platforms like `fantasyhoff.com` reveals why storing only bare team totals and JSONB strings is limiting: their best features (**Trade Autopsies**, **Steals of the Wire / FAAB ROI**, **All-Play & Median Luck Index**, **Coaching Lineup Efficiency**, **Record Books**, and **Player Career Profiles**) all rely on **weekly player-level box scores** linked to **normalized player and transaction records**.
+Storing only bare team totals and JSONB strings is limiting: rich historical features (**Trade Autopsies**, **Steals of the Wire / FAAB ROI**, **All-Play & Median Luck Index**, **Coaching Lineup Efficiency**, **Record Books**, and **Player Career Profiles**) all rely on **weekly player-level box scores** linked to **normalized player and transaction records**.
 
 To ensure we never have to re-architect the database later, the ingestion layer and schema (`db/schema.sql`) must capture the following data domains from day one:
 
@@ -98,7 +98,7 @@ flowchart TD
 ---
 
 ### Phase 1: AI Harness (`AGENTS.md` Hierarchy), Repo Skeleton & Tooling Setup
-- **Status:** `[ ] Not Started`
+- **Status:** `[x] Completed`
 - **Objective:** Prepare the repository for autonomous multi-agent development by establishing the directory skeleton, the hierarchical `AGENTS.md` files, local Docker Postgres setup, and unified verification commands.
 - **Deliverables:**
   - Root `AGENTS.md` + domain-specific `db/AGENTS.md`, `backend/AGENTS.md`, and `frontend/AGENTS.md`.
