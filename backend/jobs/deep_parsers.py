@@ -716,6 +716,19 @@ def upsert_transactions_from_payload(
                 if db_tx.scoring_period:
                     executed_waiver_wins[(db_tx.scoring_period, item.player_id)] = db_tx.espn_transaction_id
 
+    # Track TRADE_PROPOSAL items and TRADE_VETO IDs so TRADE_ACCEPT inherits traded players
+    proposal_items_by_id: dict[str, list[dict[str, Any]]] = {}
+    vetoed_proposal_ids: set[str] = set()
+    accepted_proposal_ids: set[str] = set()
+    for raw in raw_txs:
+        r_type = str(raw.get("type", "")).upper()
+        r_id = str(raw.get("id", ""))
+        r_rel = str(raw.get("relatedTransactionId") or "")
+        if r_type == "TRADE_PROPOSAL" and r_id:
+            proposal_items_by_id[r_id] = raw.get("items") or []
+        elif r_type == "TRADE_VETO" and str(raw.get("status", "")).upper() == "EXECUTED" and r_rel:
+            vetoed_proposal_ids.add(r_rel)
+
     # Track processed transaction IDs in this run & database
     existing_tx_ids = {
         t.espn_transaction_id
@@ -732,17 +745,39 @@ def upsert_transactions_from_payload(
             continue
 
         raw_type = str(raw.get("type", "WAIVER")).upper()
+        raw_status = str(raw.get("status") or "EXECUTED").upper()
         related_id = raw.get("relatedTransactionId") or raw.get("related_espn_transaction_id")
+
+        # Skip intermediate proposals/declines/veto-votes and unexecuted pending claims
+        if raw_type in ("TRADE_PROPOSAL", "TRADE_DECLINE", "TRADE_VETO"):
+            continue
+        if raw_status == "PENDING":
+            continue
+
+        # Skip lineup-only ROSTER transactions
+        if raw_type == "ROSTER":
+            non_lineup = [
+                it for it in (raw.get("items") or [])
+                if str(it.get("type", "")).upper() not in ("LINEUP", "")
+            ]
+            if not non_lineup:
+                continue
 
         # Trade deduplication: Skip TRADE_UPHOLD if relatedTransactionId was already processed as TRADE_ACCEPT
         if raw_type == "TRADE_UPHOLD" and related_id:
-            if related_id in processed_tx_ids or related_id in existing_tx_ids:
+            if (
+                related_id in processed_tx_ids
+                or related_id in existing_tx_ids
+                or related_id in accepted_proposal_ids
+            ):
                 logger.debug(
                     "Skipping duplicate TRADE_UPHOLD %s for existing trade %s",
                     espn_tx_id,
                     related_id,
                 )
                 continue
+        if raw_type == "TRADE_ACCEPT" and related_id:
+            accepted_proposal_ids.add(str(related_id))
 
         sp = int(raw.get("scoringPeriodId", raw.get("scoring_period", 0)))
         w = int(raw.get("matchupPeriodId", raw.get("week", sp or 1)))
@@ -760,26 +795,30 @@ def upsert_transactions_from_payload(
             tx_type = "WAIVER"
         elif raw_type == "DROP":
             tx_type = "DROP"
+        elif raw_type == "ROSTER":
+            item_types = {str(it.get("type", "")).upper() for it in (raw.get("items") or [])}
+            tx_type = "FREE_AGENT" if "ADD" in item_types else "DROP"
         elif raw_type in ("TRADE_ACCEPT", "TRADE_UPHOLD", "TRADE"):
             tx_type = "TRADE"
         else:
             tx_type = raw_type
 
         # Normalize status & failure reason
-        raw_status = str(raw.get("status", "EXECUTED")).upper()
         failure_reason: str | None = None
 
-        if raw_status in ("WAIVER_ERROR", "FAILED_ROSTER_LIMIT", "FAILED_OUTBID", "FAILED_INSUFFICIENT_FUNDS") or raw_status.startswith("FAILED"):
+        if raw_type == "TRADE_ACCEPT" and related_id and str(related_id) in vetoed_proposal_ids:
+            status = "VETOED"
+        elif raw_status in ("WAIVER_ERROR", "FAILED_ROSTER_LIMIT", "FAILED_OUTBID", "FAILED_INSUFFICIENT_FUNDS") or raw_status.startswith("FAILED"):
             status = "FAILED"
             msg = f"{raw.get('processMessage', '')} {raw.get('failureReason', '')} {raw_status} {raw.get('comment', '')}".upper()
             if any(term in msg for term in ("INSUFFICIENT", "BUDGET", "FUNDS", "NOT ENOUGH")):
                 failure_reason = "INSUFFICIENT_FUNDS"
             elif any(term in msg for term in ("ROSTER", "LIMIT", "FULL", "MAX PLAYERS")):
                 failure_reason = "ROSTER_LIMIT"
-            elif any(term in msg for term in ("ALREADY", "CLAIMED", "TAKEN", "ROSTERED")):
-                failure_reason = "ALREADY_CLAIMED"
-            elif any(term in msg for term in ("OUTBID", "PRIORITY", "LOWER")) or int(raw.get("bidAmount", 0)) > 0:
+            elif any(term in msg for term in ("OUTBID", "PRIORITY", "LOWER", "INVALIDPLAYERSOURCE")) or int(raw.get("bidAmount", 0)) > 0:
                 failure_reason = "OUTBID"
+            elif any(term in msg for term in ("ALREADY", "CLAIMED", "TAKEN", "ROSTERED", "PLAYERALREADYDROPPED")):
+                failure_reason = "ALREADY_CLAIMED"
             else:
                 failure_reason = "INVALID_CLAIM"
         elif raw_status in ("CANCELED", "CANCELLED"):
@@ -789,20 +828,25 @@ def upsert_transactions_from_payload(
         else:
             status = "EXECUTED"
 
-        # Auto-link failed waiver bids to winning waiver claim if not populated
-        if status == "FAILED" and tx_type == "WAIVER" and not related_id:
-            for item in raw.get("items", []):
+        # Link failed waiver bids to winning waiver claim on the same player in that week/scoring period
+        if status == "FAILED" and tx_type == "WAIVER":
+            winning_claim_id = None
+            for item in (raw.get("items") or []):
+                if str(item.get("type", "ADD")).upper() not in ("ADD", ""):
+                    continue
                 pid = int(
                     item.get("playerId")
                     or item.get("playerPoolEntry", {}).get("player", {}).get("id")
                     or 0
                 )
                 if (w, pid) in executed_waiver_wins:
-                    related_id = executed_waiver_wins[(w, pid)]
+                    winning_claim_id = executed_waiver_wins[(w, pid)]
                     break
                 if (sp, pid) in executed_waiver_wins:
-                    related_id = executed_waiver_wins[(sp, pid)]
+                    winning_claim_id = executed_waiver_wins[(sp, pid)]
                     break
+            if winning_claim_id:
+                related_id = winning_claim_id
 
         bid_amount = int(raw.get("bidAmount", 0))
         sub_order = raw.get("subOrder")
@@ -860,7 +904,14 @@ def upsert_transactions_from_payload(
         session.query(TransactionItem).filter_by(transaction_id=tx.id).delete()
         items_to_add: list[TransactionItem] = []
 
-        for item in raw.get("items", []):
+        raw_items = list(raw.get("items") or [])
+        if tx_type == "TRADE" and related_id and str(related_id) in proposal_items_by_id:
+            existing_pids = {int(it.get("playerId") or 0) for it in raw_items}
+            for prop_item in proposal_items_by_id[str(related_id)]:
+                if int(prop_item.get("playerId") or 0) not in existing_pids:
+                    raw_items.append(prop_item)
+
+        for item in raw_items:
             pid = int(
                 item.get("playerId")
                 or item.get("playerPoolEntry", {}).get("player", {}).get("id")

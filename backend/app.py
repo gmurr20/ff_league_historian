@@ -16,8 +16,6 @@ from flask_cors import CORS
 
 from backend.config import config_by_name
 from backend.database import SessionLocal, init_db
-
-load_dotenv()
 from backend.routes import (
     earnings_bp,
     history_bp,
@@ -26,6 +24,8 @@ from backend.routes import (
     trades_bp,
     transactions_bp,
 )
+
+load_dotenv()
 
 
 def create_app(test_config: dict[str, Any] | None = None) -> Flask:

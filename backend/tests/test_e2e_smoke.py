@@ -24,7 +24,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-import pytest
 from sqlalchemy.orm import sessionmaker
 
 from backend.app import create_app
@@ -33,7 +32,6 @@ from backend.jobs.backfill_history import backfill_history
 from backend.jobs.espn_client import EspnClient
 from backend.jobs.sync_weekly import sync_weekly
 from backend.models.raw_snapshot import RawEspnSnapshot
-from backend.models.sync_run import SyncRun
 from db.seed_dev import seed_database
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"

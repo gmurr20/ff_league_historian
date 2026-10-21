@@ -225,6 +225,49 @@ def backfill_history(
         season = upsert_season_from_payload(session, payload, league_id=target_league_id)
         team_map = upsert_teams_from_payload(session, season, payload, mgr_map, overrides_data)
         matchups = upsert_matchups_from_payload(session, season, payload, team_map)
+
+        # If live ESPN crawl (client is not a mock without scoringPeriodId data), also pull per-scoring-period boxscores & transactions
+        tx_filter = {
+            "transactions": {
+                "filterType": {
+                    "value": [
+                        "FREEAGENT",
+                        "WAIVER",
+                        "WAIVER_ERROR",
+                        "TRADE_PROPOSAL",
+                        "TRADE_ACCEPT",
+                        "TRADE_UPHOLD",
+                        "TRADE_VETO",
+                        "ROSTER",
+                    ]
+                }
+            }
+        }
+        max_sp = min(int(season.current_week or 1), 18)
+        all_txs = list(payload.get("transactions") or [])
+        if season.season_year >= 2018 and max_sp >= 1 and hasattr(espn_client, "http_session"):
+            for sp in range(1, max_sp + 1):
+                try:
+                    sp_payload = espn_client.fetch_league(
+                        season_year=year,
+                        views=["mBoxscore", "mTransactions2", "mRoster"],
+                        x_fantasy_filter=tx_filter,
+                        allow_inaccessible=True,
+                        league_id=target_league_id,
+                        scoring_period_id=sp,
+                    )
+                    if isinstance(sp_payload, dict) and sp_payload.get("seasonId") == year:
+                        upsert_players_from_payload(session, sp_payload)
+                        upsert_weekly_lineups_from_payload(
+                            session, season, sp_payload, team_map, weeks=[sp]
+                        )
+                        all_txs.extend(sp_payload.get("transactions") or [])
+                except Exception as sp_exc:
+                    logger.debug("Skipping scoring period %d deep fetch: %s", sp, sp_exc)
+        if all_txs:
+            payload = dict(payload)
+            payload["transactions"] = all_txs
+
         players = upsert_players_from_payload(session, payload)
         lineups = upsert_weekly_lineups_from_payload(session, season, payload, team_map)
         txs = upsert_transactions_from_payload(session, season, payload, team_map)

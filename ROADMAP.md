@@ -111,7 +111,7 @@ flowchart TD
 ---
 
 ### Phase 2: Maximal Database Schema, SQLAlchemy Models & Offline Seed Harness
-- **Status:** `[ ] Not Started`
+- **Status:** `[x] Completed`
 - **Objective:** Implement the full PostgreSQL schema (`db/schema.sql`), SQLAlchemy 2.0 models (`backend/models/`), connection pooling (`backend/database.py`), and a rich multi-season seed script (`db/seed_dev.py`) covering all 8 data domains in Section 2.
 - **Deliverables:**
   - `db/schema.sql` and `backend/models/` covering:
@@ -124,7 +124,7 @@ flowchart TD
 ---
 
 ### Phase 3: ESPN Ingestion Engine — Part 1 (Shared Core, One-Time Historical Backfill & Incremental Weekly Cron)
-- **Status:** `[ ] Not Started`
+- **Status:** `[x] Completed`
 - **Objective:** Build the two-tier ingestion architecture separating the **One-Time Historical Backfill (`backfill_history.py`)** from the **Incremental Weekly Cron (`sync_weekly.py`)**, sharing pure domain parsers for seasons, managers, teams, matchups, and the financial ledger.
 - **Deliverables:**
   - **Shared Client & Pure Parsers (`backend/jobs/espn_client.py`, `backend/jobs/parsers.py`, `backend/jobs/ledger_reconciler.py`):**
@@ -141,7 +141,7 @@ flowchart TD
 ---
 
 ### Phase 4: ESPN Ingestion Engine — Part 2 (Players, Weekly Boxscore Lineups, Waivers, Bidding Wars & Trades)
-- **Status:** `[ ] Not Started`
+- **Status:** `[x] Completed`
 - **Objective:** Plug deep player, weekly boxscore lineup (`mBoxscore`), and transaction/trade (`mTransactions2`) extraction into both `backfill_history.py` (all weeks/scoring periods) and `sync_weekly.py` (only the rolling active weeks/scoring periods).
 - **Deliverables:**
   - Canonical `players` upserter (`espn_player_id`, `full_name`, `default_position`, `pro_team`, `headshot_url`).
@@ -154,7 +154,7 @@ flowchart TD
 ---
 
 ### Phase 5: Read-Only Flask REST API, Query Services & Contract Documentation
-- **Status:** `[ ] Not Started`
+- **Status:** `[x] Completed`
 - **Objective:** Expose the read-only JSON REST endpoints powered by SQLAlchemy query services and Gunicorn `gthread` configuration.
 - **Deliverables:**
   - Query services (`backend/services/`) and Flask blueprints (`backend/routes/`) for:
@@ -171,7 +171,7 @@ flowchart TD
 ---
 
 ### Phase 6: Frontend Mobile-First PWA Shell, Typed API Client & Navigation
-- **Status:** `[ ] Not Started`
+- **Status:** `[x] Completed`
 - **Objective:** Scaffold the `frontend/` Vue 3 + Vite + TypeScript + Tailwind CSS + `vite-plugin-pwa` client and mobile application shell.
 - **Deliverables:**
   - Strict TypeScript interfaces (`src/types/api.ts`) mirroring `docs/api-contracts.md` and a typed fetch client (`src/api/client.ts`).
@@ -184,7 +184,7 @@ flowchart TD
 ---
 
 ### Phase 7: Standings, All-Play Luck & Financial Earnings Leaderboard Views
-- **Status:** `[ ] Not Started`
+- **Status:** `[x] Completed`
 - **Objective:** Implement the **Standings** and **Earnings Leaderboard** mobile screens.
 - **Deliverables:**
   - `StandingsView.vue`: Current/historical season standings with W-L-T, PF/PA, All-Play & Luck indicators, weekly `$10` cash won badges, and podium indicators.
@@ -195,7 +195,7 @@ flowchart TD
 ---
 
 ### Phase 8: Career Head-to-Head Matrix & Rivalry Comparator View
-- **Status:** `[ ] Not Started`
+- **Status:** `[x] Completed`
 - **Objective:** Implement the **Head-to-Head History** screen combining a league-wide N×N rivalry matrix and a 1-on-1 manager comparator.
 - **Deliverables:**
   - `HeadToHeadView.vue` + child components:
@@ -207,7 +207,7 @@ flowchart TD
 ---
 
 ### Phase 9: Trade Network, Waiver/FAAB Audit & Bidding War Views
-- **Status:** `[ ] Not Started`
+- **Status:** `[x] Completed`
 - **Objective:** Implement the **Trade Trends** and **Transactions / Waiver Audit** screens.
 - **Deliverables:**
   - `TradesView.vue`: Visualizes top trading partner pairs (`LEAST`/`GREATEST` alliances), most active traders, and chronological trade cards showing player headshots and post-trade realized points.
@@ -218,7 +218,7 @@ flowchart TD
 ---
 
 ### Phase 10: Railway Production Packaging & End-to-End Contract Verification
-- **Status:** `[ ] Not Started`
+- **Status:** `[x] Completed`
 - **Objective:** Package the 4 Railway services (PostgreSQL, Gunicorn API, NGINX Frontend PWA, and the Incremental Weekly Cron Worker) plus one-time backfill runbook, and execute an automated end-to-end contract verification suite.
 - **Deliverables:**
   - Production `backend/Dockerfile` (supporting `gunicorn` for the API service, `python -m backend.jobs.sync_weekly` for the Railway Cron service, and `python -m backend.jobs.backfill_history` for one-time historical seeding) and `frontend/Dockerfile` + `frontend/nginx.conf`.
