@@ -2,26 +2,26 @@
 import { computed } from 'vue';
 import type { EarningsLeaderboardEntry, ManagerSeasonBreakdown } from '@/types/api';
 import SwipeDrawer from '@/components/ui/SwipeDrawer.vue';
-import {
-  Trophy,
-  Medal,
-  Calendar,
-  Landmark,
-} from 'lucide-vue-next';
+import TeamAvatar from '@/components/ui/TeamAvatar.vue';
 
 const props = defineProps<{
   modelValue: boolean;
   entry: EarningsLeaderboardEntry | null;
+  isSingleSeason?: boolean;
+  seasonYear?: number | null;
 }>();
 
 const emit = defineEmits<{
   (e: 'update:modelValue', val: boolean): void;
 }>();
 
-const title = computed(() => props.entry?.display_name ?? 'Manager Earnings');
+const title = computed(() => props.entry?.team_name ?? 'Team Earnings');
 const subtitle = computed(() => {
   if (!props.entry) return '';
-  return `Career Ledger · ${props.entry.seasons_played} ${props.entry.seasons_played === 1 ? 'Season' : 'Seasons'}`;
+  if (props.isSingleSeason) {
+    return `${props.entry.display_name} · Season ${props.seasonYear ?? ''}`;
+  }
+  return `${props.entry.display_name} · ${props.entry.seasons_played} ${props.entry.seasons_played === 1 ? 'Season' : 'Seasons'}`;
 });
 
 // Sorted seasons (most recent first)
@@ -30,37 +30,28 @@ const sortedBreakdown = computed<ManagerSeasonBreakdown[]>(() => {
   return [...props.entry.season_breakdown].sort((a, b) => b.season_year - a.season_year);
 });
 
-function getTrophyBadge(item: ManagerSeasonBreakdown) {
-  if (item.trophy === 'CHAMPION' || item.final_standing === 1) {
-    return {
-      label: 'Champion',
-      icon: Trophy,
-      class: 'bg-amber-500/20 text-amber-300 border-amber-500/40 ring-1 ring-amber-500/30',
-    };
+// Selected season breakdown item (if single-season mode)
+const currentSeasonItem = computed<ManagerSeasonBreakdown | null>(() => {
+  if (!props.entry?.season_breakdown) return null;
+  if (props.seasonYear) {
+    return (
+      props.entry.season_breakdown.find(
+        (s) => s.season_year === props.seasonYear
+      ) ?? props.entry.season_breakdown[0]
+    );
   }
-  if (item.trophy === 'RUNNER_UP' || item.final_standing === 2) {
-    return {
-      label: 'Runner-Up',
-      icon: Medal,
-      class: 'bg-slate-400/20 text-slate-200 border-slate-400/40',
-    };
-  }
-  if (item.trophy === 'THIRD_PLACE' || item.final_standing === 3) {
-    return {
-      label: '3rd Place',
-      icon: Medal,
-      class: 'bg-amber-800/20 text-amber-500 border-amber-800/40',
-    };
-  }
-  if (item.final_standing) {
-    return {
-      label: `#${item.final_standing} Final`,
-      icon: null,
-      class: 'bg-slate-800 text-slate-400 border-slate-700/60',
-    };
-  }
-  return null;
-}
+  return props.entry.season_breakdown[0] ?? null;
+});
+
+// Bounties for the active view (most recent week first)
+const displayedBounties = computed(() => {
+  const list = (
+    props.isSingleSeason && currentSeasonItem.value
+      ? currentSeasonItem.value.bounty_receipts ?? []
+      : props.entry?.bounty_receipts ?? []
+  );
+  return [...list].sort((a, b) => b.week - a.week);
+});
 </script>
 
 <template>
@@ -70,132 +61,151 @@ function getTrophyBadge(item: ManagerSeasonBreakdown) {
     :subtitle="subtitle"
     @update:model-value="emit('update:modelValue', $event)"
   >
-    <div v-if="entry" class="space-y-4 pb-4">
-      <!-- Top Overview KPI Strip -->
-      <div class="stadium-card rounded-2xl p-4 border border-slate-800 space-y-3">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <Landmark class="w-4 h-4 text-emerald-400" />
-            <h4 class="text-xs uppercase font-bold tracking-wider text-slate-300">
-              Career Financial Summary
-            </h4>
+    <div v-if="entry" class="space-y-3.5 pb-4">
+      <!-- Team & Manager Identity Card -->
+      <div class="rounded-xl border border-slate-800 bg-[#0b101b] p-3.5 flex items-center justify-between gap-3 shadow-md">
+        <div class="flex items-center gap-3 min-w-0">
+          <TeamAvatar :src="entry.avatar_url" :name="entry.team_name" size="md" rounded="lg" />
+          <div class="min-w-0">
+            <h3 class="text-sm sm:text-base font-bold text-slate-100 truncate">{{ entry.team_name }}</h3>
+            <p class="text-xs text-slate-400 truncate">{{ entry.display_name }}</p>
           </div>
+        </div>
 
-          <span
-            class="text-xs font-mono px-2.5 py-0.5 rounded font-black bg-emerald-950/90 text-emerald-300 border border-emerald-800/80 shadow-sm"
-          >
-            ${{ entry.total_earnings.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }} Net
+        <div class="text-right shrink-0">
+          <span class="text-xs sm:text-sm font-mono font-black text-emerald-400 bg-emerald-950/80 border border-emerald-800/80 px-2.5 py-1 rounded-lg tabular-nums shadow-sm">
+            ${{ entry.total_earnings.toFixed(2) }}
+          </span>
+        </div>
+      </div>
+
+      <!-- Financial Category Breakdown Strip -->
+      <div class="grid grid-cols-3 gap-2">
+        <div class="rounded-lg bg-slate-900/80 border border-slate-800/80 p-2.5 text-center">
+          <span class="text-[10px] text-slate-400 uppercase font-mono font-bold block">Wins Cash</span>
+          <div class="text-xs sm:text-sm font-bold font-mono text-slate-200 tabular-nums mt-0.5">
+            ${{ entry.weekly_wins_cash.toFixed(2) }}
+          </div>
+          <span class="text-[10px] text-slate-500 font-mono">
+            {{ entry.weekly_wins_count }}W<span v-if="entry.weekly_ties_count > 0">, {{ entry.weekly_ties_count }}T</span>
           </span>
         </div>
 
-        <div class="grid grid-cols-3 gap-2 pt-1">
-          <div class="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80">
-            <span class="text-[10px] text-slate-400 uppercase font-semibold">Podium Cash</span>
-            <div class="text-sm sm:text-base font-bold font-mono text-amber-400 tabular-nums">
-              ${{ entry.podium_earnings.toFixed(2) }}
-            </div>
-            <span class="text-[10px] text-slate-500 font-mono">1st / 2nd / 3rd</span>
+        <div class="rounded-lg bg-slate-900/80 border border-slate-800/80 p-2.5 text-center">
+          <span class="text-[10px] text-slate-400 uppercase font-mono font-bold block">Bonus Cash</span>
+          <div class="text-xs sm:text-sm font-bold font-mono text-emerald-400 tabular-nums mt-0.5">
+            ${{ entry.weekly_bonus_cash.toFixed(2) }}
           </div>
+          <span class="text-[10px] text-slate-500 font-mono">
+            {{ entry.weekly_high_scores_count + entry.weekly_high_score_losses_count }} Bounties
+          </span>
+        </div>
 
-          <div class="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80">
-            <span class="text-[10px] text-slate-400 uppercase font-semibold">Weekly Wins Cash</span>
-            <div class="text-sm sm:text-base font-bold font-mono text-emerald-400 tabular-nums">
-              ${{ entry.weekly_earnings.toFixed(2) }}
-            </div>
-            <span class="text-[10px] text-slate-500 font-mono">
-              {{ entry.weekly_wins_count }} {{ entry.weekly_wins_count === 1 ? 'Win' : 'Wins' }}
-              <span v-if="entry.weekly_ties_count > 0">, {{ entry.weekly_ties_count }}T</span>
-            </span>
+        <div class="rounded-lg bg-slate-900/80 border border-slate-800/80 p-2.5 text-center">
+          <span class="text-[10px] text-slate-400 uppercase font-mono font-bold block">Podium Cash</span>
+          <div class="text-xs sm:text-sm font-bold font-mono text-amber-400 tabular-nums mt-0.5">
+            ${{ entry.podium_earnings.toFixed(2) }}
           </div>
-
-          <div class="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80">
-            <span class="text-[10px] text-slate-400 uppercase font-semibold">Trophies</span>
-            <div class="text-sm sm:text-base font-bold font-mono text-slate-200 tabular-nums">
-              {{ entry.championships + entry.runner_ups + entry.third_places }}
-            </div>
-            <span class="text-[10px] text-slate-500 font-mono">{{ entry.championships }} 🏆 Titles</span>
-          </div>
+          <span class="text-[10px] text-slate-500 font-mono">
+            {{ entry.championships > 0 ? `${entry.championships} Titles` : 'Placements' }}
+          </span>
         </div>
       </div>
 
-      <!-- Season Breakdown Title -->
-      <div class="flex items-center justify-between px-1">
-        <h4 class="text-xs uppercase font-bold tracking-wider text-slate-300 flex items-center gap-1.5">
-          <Calendar class="w-3.5 h-3.5 text-emerald-400" />
-          <span>Season-by-Season Breakdown</span>
-        </h4>
-        <span class="text-[11px] font-mono text-slate-500">
-          {{ sortedBreakdown.length }} {{ sortedBreakdown.length === 1 ? 'Season' : 'Seasons' }}
-        </span>
+      <!-- ITEMIZE EACH WEEK THEY GOT A WEEKLY BOUNTY -->
+      <div class="rounded-xl border border-slate-800 bg-[#0b101b] overflow-hidden shadow-md">
+        <div class="flex items-center justify-between px-3.5 py-2.5 bg-slate-900/90 border-b border-slate-800/80">
+          <h4 class="text-xs font-mono font-black uppercase tracking-wider text-slate-200">
+            Weekly Bounties Won ({{ displayedBounties.length }})
+          </h4>
+          <span class="text-[11px] font-mono text-emerald-400 font-bold tabular-nums">
+            ${{ entry.weekly_bonus_cash.toFixed(0) }} Total
+          </span>
+        </div>
+
+        <!-- List of specific weeks they won a bounty -->
+        <div v-if="displayedBounties.length > 0" class="divide-y divide-slate-800/60 p-2 sm:p-2.5 space-y-1.5">
+          <div
+            v-for="b in displayedBounties"
+            :key="`${b.week}-${b.entry_type}`"
+            class="rounded-lg bg-slate-900/60 border border-slate-800/80 p-2 sm:p-2.5 flex items-center justify-between gap-2"
+          >
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="text-[10px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 shrink-0">
+                Wk {{ b.week }}
+              </span>
+
+              <span
+                class="text-[9px] font-mono font-black uppercase tracking-wider px-1.5 py-0.2 rounded shrink-0"
+                :class="
+                  b.entry_type === 'WEEKLY_HIGH_SCORE'
+                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                    : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
+                "
+              >
+                {{ b.entry_type === 'WEEKLY_HIGH_SCORE' ? 'High Score' : 'High Loser' }}
+              </span>
+
+              <span class="text-xs font-mono text-slate-300 truncate">
+                {{ b.points.toFixed(2) }} pts
+              </span>
+            </div>
+
+            <div class="font-mono text-xs font-bold text-emerald-400 tabular-nums shrink-0">
+              +${{ b.amount.toFixed(0) }}
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="p-5 text-center text-xs font-mono text-slate-500">
+          No weekly high score or high loser bounties won this season.
+        </div>
       </div>
 
-      <!-- Season Breakdown Cards -->
-      <div class="space-y-2">
-        <div
-          v-for="item in sortedBreakdown"
-          :key="item.season_year"
-          class="stadium-card rounded-xl p-3 border border-slate-800/80 space-y-2 hover:border-slate-700/80 transition-colors"
-        >
-          <!-- Season Year & Team Name -->
-          <div class="flex items-center justify-between gap-2">
-            <div class="flex items-center gap-2 min-w-0">
-              <span class="text-xs font-black font-mono text-slate-200 bg-slate-800 px-2 py-0.5 rounded">
-                {{ item.season_year }}
-              </span>
-              <span class="text-xs sm:text-sm font-bold text-slate-100 truncate" :title="item.team_name">
-                {{ item.team_name }}
-              </span>
-            </div>
+      <!-- ALL-TIME SEASON BREAKDOWN (When viewing career all-time) -->
+      <div v-if="!isSingleSeason && sortedBreakdown.length > 0" class="space-y-2 pt-1">
+        <h4 class="text-xs uppercase font-mono font-black tracking-wider text-slate-300 px-1">
+          Season-by-Season History
+        </h4>
 
-            <!-- Trophy or Final standing badge -->
-            <span
-              v-if="getTrophyBadge(item)"
-              class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border shrink-0"
-              :class="getTrophyBadge(item)?.class"
-            >
-              <component
-                :is="getTrophyBadge(item)?.icon"
-                v-if="getTrophyBadge(item)?.icon"
-                class="w-3 h-3 shrink-0"
-              />
-              <span>{{ getTrophyBadge(item)?.label }}</span>
-            </span>
-          </div>
-
-          <!-- Earnings Breakdown for this season -->
-          <div class="pt-2 border-t border-slate-800/60 grid grid-cols-3 gap-2 text-xs">
-            <!-- Weekly Wins -->
-            <div>
-              <span class="text-[10px] uppercase font-semibold text-slate-400 block">Weekly Cash</span>
-              <div class="font-mono text-emerald-400 font-semibold tabular-nums">
-                ${{ item.weekly_earnings.toFixed(2) }}
+        <div class="space-y-2">
+          <div
+            v-for="item in sortedBreakdown"
+            :key="item.season_year"
+            class="rounded-xl bg-[#0b101b] p-3 border border-slate-800/80 space-y-2"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="text-xs font-black font-mono text-slate-200 bg-slate-800 px-1.5 py-0.5 rounded shrink-0">
+                  {{ item.season_year }}
+                </span>
+                <span class="text-xs font-bold text-slate-100 truncate">
+                  {{ item.team_name }}
+                </span>
               </div>
-              <span class="text-[10px] text-slate-500 font-mono">
-                {{ item.weekly_wins }}W<span v-if="item.weekly_ties > 0">, {{ item.weekly_ties }}T</span>
-              </span>
-            </div>
 
-            <!-- Podium Cash -->
-            <div>
-              <span class="text-[10px] uppercase font-semibold text-slate-400 block">Podium Cash</span>
-              <div class="font-mono text-amber-400 font-semibold tabular-nums">
-                ${{ item.podium_earnings.toFixed(2) }}
-              </div>
-              <span class="text-[10px] text-slate-500 font-mono">
-                {{ item.final_standing ? `Finish #${item.final_standing}` : 'No Podium' }}
-              </span>
-            </div>
-
-            <!-- Total Season Earnings -->
-            <div class="text-right">
-              <span class="text-[10px] uppercase font-semibold text-slate-400 block">Season Total</span>
-              <div
-                class="font-mono font-bold tabular-nums text-sm"
-                :class="item.total_earnings > 0 ? 'text-emerald-300' : 'text-slate-400'"
-              >
+              <div class="text-right font-mono text-xs font-bold text-emerald-400 tabular-nums">
                 ${{ item.total_earnings.toFixed(2) }}
               </div>
-              <span class="text-[10px] text-slate-500 font-mono">Net Prize</span>
+            </div>
+
+            <div class="grid grid-cols-3 gap-2 text-[11px] font-mono border-t border-slate-800/60 pt-1.5 text-slate-400">
+              <div>
+                <span class="text-[9px] uppercase text-slate-500 block">Wins</span>
+                <span class="text-slate-200 font-bold">${{ item.weekly_wins_cash.toFixed(0) }}</span>
+                <span class="text-[10px] text-slate-500 ml-1">({{ item.weekly_wins }}W)</span>
+              </div>
+
+              <div>
+                <span class="text-[9px] uppercase text-slate-500 block">Bounties</span>
+                <span class="text-emerald-400 font-bold">${{ item.weekly_bonus_cash.toFixed(0) }}</span>
+                <span class="text-[10px] text-slate-500 ml-1">({{ item.bounty_receipts?.length || 0 }})</span>
+              </div>
+
+              <div>
+                <span class="text-[9px] uppercase text-slate-500 block">Podium</span>
+                <span class="text-amber-400 font-bold">${{ item.podium_earnings.toFixed(0) }}</span>
+              </div>
             </div>
           </div>
         </div>

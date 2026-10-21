@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import type { TransactionAuditItem, FailureReasonCount } from '@/types/api';
+import TeamAvatar from '@/components/ui/TeamAvatar.vue';
 import {
   Search,
   CheckCircle2,
@@ -274,13 +275,20 @@ const filteredTransactions = computed(() => {
 
         <!-- Manager / Team Row + FAAB Bid -->
         <div class="flex items-center justify-between gap-2 pt-2 border-t border-slate-800/60 mt-2">
-          <div class="min-w-0">
-            <span class="font-bold text-xs text-slate-100 truncate block" :title="tx.manager_name || 'System'">
-              {{ tx.manager_name || 'League System' }}
-            </span>
-            <span v-if="tx.team_name" class="text-[11px] text-slate-400 truncate block" :title="tx.team_name">
-              {{ tx.team_name }}
-            </span>
+          <div class="flex items-center gap-2.5 min-w-0">
+            <TeamAvatar
+              :src="tx.logo_url"
+              :name="tx.team_name || tx.manager_name || 'League System'"
+              size="sm"
+            />
+            <div class="min-w-0">
+              <span class="font-bold text-xs text-slate-100 truncate block" :title="tx.team_name || tx.manager_name || 'System'">
+                {{ tx.team_name || tx.manager_name || 'League System' }}
+              </span>
+              <span v-if="tx.manager_name" class="text-[11px] text-slate-400 truncate block" :title="tx.manager_name">
+                {{ tx.manager_name }}
+              </span>
+            </div>
           </div>
 
           <div v-if="tx.bid_amount != null" class="text-right shrink-0">

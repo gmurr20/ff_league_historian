@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { TopTradePartner } from '@/types/api';
+import TeamAvatar from '@/components/ui/TeamAvatar.vue';
 import { ArrowLeftRight, Users } from 'lucide-vue-next';
 
 defineProps<{
@@ -45,12 +46,19 @@ defineProps<{
     <div class="bg-slate-900/60 rounded-lg p-2.5 border border-slate-800/80 flex items-center justify-between gap-2">
       <!-- Manager A -->
       <div class="flex items-center gap-2 min-w-0 flex-1">
-        <div class="w-7 h-7 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0 text-slate-300 font-bold text-xs">
-          {{ partner.manager_a_name.charAt(0) }}
+        <TeamAvatar
+          :src="partner.manager_a_avatar_url"
+          :name="partner.manager_a_team_name || partner.manager_a_name"
+          size="sm"
+        />
+        <div class="min-w-0">
+          <div class="text-xs font-bold text-slate-200 truncate tracking-tight" :title="partner.manager_a_team_name || partner.manager_a_name">
+            {{ partner.manager_a_team_name || partner.manager_a_name }}
+          </div>
+          <div class="text-[10px] text-slate-400 truncate" :title="partner.manager_a_name">
+            {{ partner.manager_a_name }}
+          </div>
         </div>
-        <span class="text-xs font-bold text-slate-200 truncate tracking-tight" :title="partner.manager_a_name">
-          {{ partner.manager_a_name }}
-        </span>
       </div>
 
       <!-- Connecting Icon -->
@@ -60,12 +68,19 @@ defineProps<{
 
       <!-- Manager B -->
       <div class="flex items-center gap-2 min-w-0 flex-1 justify-end text-right">
-        <span class="text-xs font-bold text-slate-200 truncate tracking-tight" :title="partner.manager_b_name">
-          {{ partner.manager_b_name }}
-        </span>
-        <div class="w-7 h-7 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0 text-slate-300 font-bold text-xs">
-          {{ partner.manager_b_name.charAt(0) }}
+        <div class="min-w-0">
+          <div class="text-xs font-bold text-slate-200 truncate tracking-tight" :title="partner.manager_b_team_name || partner.manager_b_name">
+            {{ partner.manager_b_team_name || partner.manager_b_name }}
+          </div>
+          <div class="text-[10px] text-slate-400 truncate" :title="partner.manager_b_name">
+            {{ partner.manager_b_name }}
+          </div>
         </div>
+        <TeamAvatar
+          :src="partner.manager_b_avatar_url"
+          :name="partner.manager_b_team_name || partner.manager_b_name"
+          size="sm"
+        />
       </div>
     </div>
   </div>

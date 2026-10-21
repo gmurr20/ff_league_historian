@@ -41,9 +41,14 @@ CREATE TABLE IF NOT EXISTS seasons (
     roster_slots JSONB NOT NULL DEFAULT '{}',
     faab_budget INT NOT NULL DEFAULT 100,
     weekly_win_payout NUMERIC(10,2) NOT NULL DEFAULT 10.00,
-    champion_payout NUMERIC(10,2) NOT NULL DEFAULT 600.00,
+    weekly_high_score_payout NUMERIC(10,2) NOT NULL DEFAULT 10.00,
+    weekly_high_score_loss_payout NUMERIC(10,2) NOT NULL DEFAULT 10.00,
+    champion_payout NUMERIC(10,2) NOT NULL DEFAULT 500.00,
     runner_up_payout NUMERIC(10,2) NOT NULL DEFAULT 300.00,
-    third_place_payout NUMERIC(10,2) NOT NULL DEFAULT 100.00,
+    third_place_payout NUMERIC(10,2) NOT NULL DEFAULT 200.00,
+    fourth_place_payout NUMERIC(10,2) NOT NULL DEFAULT 150.00,
+    fifth_place_payout NUMERIC(10,2) NOT NULL DEFAULT 100.00,
+    regular_season_most_points_payout NUMERIC(10,2) NOT NULL DEFAULT 30.00,
     has_transaction_data BOOLEAN NOT NULL DEFAULT TRUE,
     has_boxscore_data BOOLEAN NOT NULL DEFAULT TRUE,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -294,13 +299,13 @@ CREATE TABLE IF NOT EXISTS earnings_ledger (
 CREATE INDEX IF NOT EXISTS idx_earnings_manager_season ON earnings_ledger(manager_id, season_year);
 CREATE INDEX IF NOT EXISTS idx_earnings_entry_type ON earnings_ledger(entry_type);
 
--- Enforce at most one weekly payout per manager per week in a season
+-- Enforce at most one weekly win/tie payout per manager per week in a season
 CREATE UNIQUE INDEX IF NOT EXISTS uq_earnings_weekly_single
     ON earnings_ledger (manager_id, season_year, week)
-    WHERE week IS NOT NULL;
+    WHERE entry_type IN ('WEEKLY_WIN', 'WEEKLY_TIE');
 
-COMMENT ON TABLE earnings_ledger IS 'Financial ledger tracking weekly win/tie prizes and season championship podium awards.';
-COMMENT ON COLUMN earnings_ledger.week IS 'Null for season-level podium awards (CHAMPION, RUNNER_UP, THIRD_PLACE).';
+COMMENT ON TABLE earnings_ledger IS 'Financial ledger tracking weekly win/tie/high score prizes, regular season most points, and playoff placement awards.';
+COMMENT ON COLUMN earnings_ledger.week IS 'Null for season-level awards (podiums, placements, regular season most points).';
 
 -- -----------------------------------------------------------------------------
 -- 12. Sync Runs Audit Log

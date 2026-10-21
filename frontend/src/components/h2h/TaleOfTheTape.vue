@@ -3,6 +3,7 @@ import { ref, computed } from 'vue';
 import type { H2HPairDetail } from '@/types/api';
 import MatchupHistoryItem from './MatchupHistoryItem.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
+import TeamAvatar from '@/components/ui/TeamAvatar.vue';
 import {
   Swords,
   Flame,
@@ -121,18 +122,31 @@ const sortedMatchups = computed(() => {
               : 'bg-slate-900/60 border-slate-800/80 text-slate-300',
           ]"
         >
-          <div class="flex items-center justify-center sm:justify-start gap-1.5 mb-1">
-            <Award
-              v-if="isManagerALeadingSeries"
-              class="w-4 h-4 text-emerald-400 shrink-0"
+          <div class="flex items-center justify-center sm:justify-start gap-2 mb-1.5">
+            <TeamAvatar
+              :src="pairDetail.manager_a.avatar_url"
+              :name="pairDetail.manager_a.team_name"
+              size="md"
+              rounded="xl"
             />
-            <span class="text-[11px] font-extrabold tracking-wider uppercase truncate" :class="isManagerALeadingSeries ? 'text-emerald-400' : 'text-slate-400'">
-              Manager A
-            </span>
+            <div class="min-w-0 text-left">
+              <div class="flex items-center gap-1">
+                <Award
+                  v-if="isManagerALeadingSeries"
+                  class="w-3.5 h-3.5 text-emerald-400 shrink-0"
+                />
+                <span class="text-[10px] font-extrabold tracking-wider uppercase truncate" :class="isManagerALeadingSeries ? 'text-emerald-400' : 'text-slate-400'">
+                  Franchise A
+                </span>
+              </div>
+              <h3 class="text-sm sm:text-base font-black text-slate-100 truncate leading-tight" :title="pairDetail.manager_a.team_name">
+                {{ pairDetail.manager_a.team_name }}
+              </h3>
+              <p class="text-xs text-slate-400 truncate leading-tight" :title="pairDetail.manager_a.display_name">
+                {{ pairDetail.manager_a.display_name }}
+              </p>
+            </div>
           </div>
-          <h3 class="text-base sm:text-lg font-black text-slate-100 truncate">
-            {{ pairDetail.manager_a.display_name }}
-          </h3>
           <div class="mt-2 flex items-baseline justify-center sm:justify-start gap-1.5">
             <span class="font-mono text-2xl sm:text-3xl font-black text-slate-100">
               {{ pairDetail.combined.a_wins }}
@@ -153,18 +167,31 @@ const sortedMatchups = computed(() => {
               : 'bg-slate-900/60 border-slate-800/80 text-slate-300',
           ]"
         >
-          <div class="flex items-center justify-center sm:justify-end gap-1.5 mb-1">
-            <span class="text-[11px] font-extrabold tracking-wider uppercase truncate" :class="isManagerBLeadingSeries ? 'text-emerald-400' : 'text-slate-400'">
-              Manager B
-            </span>
-            <Award
-              v-if="isManagerBLeadingSeries"
-              class="w-4 h-4 text-emerald-400 shrink-0"
+          <div class="flex items-center justify-center sm:justify-end gap-2 mb-1.5">
+            <div class="min-w-0 text-right">
+              <div class="flex items-center justify-end gap-1">
+                <span class="text-[10px] font-extrabold tracking-wider uppercase truncate" :class="isManagerBLeadingSeries ? 'text-emerald-400' : 'text-slate-400'">
+                  Franchise B
+                </span>
+                <Award
+                  v-if="isManagerBLeadingSeries"
+                  class="w-3.5 h-3.5 text-emerald-400 shrink-0"
+                />
+              </div>
+              <h3 class="text-sm sm:text-base font-black text-slate-100 truncate leading-tight" :title="pairDetail.manager_b.team_name">
+                {{ pairDetail.manager_b.team_name }}
+              </h3>
+              <p class="text-xs text-slate-400 truncate leading-tight" :title="pairDetail.manager_b.display_name">
+                {{ pairDetail.manager_b.display_name }}
+              </p>
+            </div>
+            <TeamAvatar
+              :src="pairDetail.manager_b.avatar_url"
+              :name="pairDetail.manager_b.team_name"
+              size="md"
+              rounded="xl"
             />
           </div>
-          <h3 class="text-base sm:text-lg font-black text-slate-100 truncate">
-            {{ pairDetail.manager_b.display_name }}
-          </h3>
           <div class="mt-2 flex items-baseline justify-center sm:justify-end gap-1.5">
             <span class="text-xs text-slate-400 uppercase font-semibold">Wins</span>
             <span class="font-mono text-2xl sm:text-3xl font-black text-slate-100">

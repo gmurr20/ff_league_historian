@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { H2HMatchupGame } from '@/types/api';
+import TeamAvatar from '@/components/ui/TeamAvatar.vue';
 import { Trophy, Calendar, Check, Minus } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -87,17 +88,25 @@ const margin = computed(() => {
               : 'bg-slate-900/40 border-slate-800/60 text-slate-400 opacity-80',
         ]"
       >
-        <div class="flex items-start justify-between gap-1 mb-1">
-          <div class="min-w-0 flex-1">
-            <span
-              v-if="managerAName"
-              class="text-[10px] font-bold uppercase tracking-wider block truncate"
-              :class="isManagerAWinner ? 'text-emerald-400' : 'text-slate-400'"
-            >
-              {{ managerAName }}
-            </span>
-            <div class="text-xs font-semibold text-slate-200 truncate mt-0.5">
-              {{ matchup.manager_a_team_name }}
+        <div class="flex items-start justify-between gap-1.5 mb-1">
+          <div class="flex items-center gap-2 min-w-0 flex-1">
+            <TeamAvatar
+              :src="matchup.manager_a_logo_url"
+              :name="matchup.manager_a_team_name"
+              size="xs"
+              rounded="lg"
+            />
+            <div class="min-w-0 flex-1">
+              <div class="text-xs font-bold text-slate-100 truncate leading-tight" :title="matchup.manager_a_team_name">
+                {{ matchup.manager_a_team_name }}
+              </div>
+              <span
+                v-if="managerAName"
+                class="text-[11px] font-medium block truncate mt-0.5"
+                :class="isManagerAWinner ? 'text-emerald-400' : 'text-slate-400'"
+              >
+                {{ managerAName }}
+              </span>
             </div>
           </div>
           <span
@@ -136,17 +145,25 @@ const margin = computed(() => {
               : 'bg-slate-900/40 border-slate-800/60 text-slate-400 opacity-80',
         ]"
       >
-        <div class="flex items-start justify-between gap-1 mb-1">
-          <div class="min-w-0 flex-1">
-            <span
-              v-if="managerBName"
-              class="text-[10px] font-bold uppercase tracking-wider block truncate"
-              :class="isManagerBWinner ? 'text-emerald-400' : 'text-slate-400'"
-            >
-              {{ managerBName }}
-            </span>
-            <div class="text-xs font-semibold text-slate-200 truncate mt-0.5">
-              {{ matchup.manager_b_team_name }}
+        <div class="flex items-start justify-between gap-1.5 mb-1">
+          <div class="flex items-center gap-2 min-w-0 flex-1">
+            <TeamAvatar
+              :src="matchup.manager_b_logo_url"
+              :name="matchup.manager_b_team_name"
+              size="xs"
+              rounded="lg"
+            />
+            <div class="min-w-0 flex-1">
+              <div class="text-xs font-bold text-slate-100 truncate leading-tight" :title="matchup.manager_b_team_name">
+                {{ matchup.manager_b_team_name }}
+              </div>
+              <span
+                v-if="managerBName"
+                class="text-[11px] font-medium block truncate mt-0.5"
+                :class="isManagerBWinner ? 'text-emerald-400' : 'text-slate-400'"
+              >
+                {{ managerBName }}
+              </span>
             </div>
           </div>
           <span

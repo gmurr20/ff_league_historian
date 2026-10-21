@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { ManagerEfficiency } from '@/types/api';
+import TeamAvatar from '@/components/ui/TeamAvatar.vue';
 import { DollarSign, CheckCircle2, XCircle, TrendingUp, Sparkles, UserPlus, UserMinus } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -40,12 +41,17 @@ const successRatePercent = computed(() => {
         >
           #{{ rank }}
         </span>
+        <TeamAvatar
+          :src="manager.logo_url"
+          :name="manager.team_name || manager.display_name"
+          size="sm"
+        />
         <div class="min-w-0">
-          <div class="font-bold text-sm text-slate-100 truncate" :title="manager.display_name">
-            {{ manager.display_name }}
-          </div>
-          <div class="text-xs text-slate-400 truncate mt-0.5" :title="manager.team_name">
+          <div class="font-bold text-sm text-slate-100 truncate" :title="manager.team_name">
             {{ manager.team_name }}
+          </div>
+          <div class="text-xs text-slate-400 truncate mt-0.5" :title="manager.display_name">
+            {{ manager.display_name }}
           </div>
         </div>
       </div>

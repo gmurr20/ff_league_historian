@@ -18,6 +18,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from backend.jobs.payout_policy import load_season_payout_rules
 from backend.models.manager import Manager
 from backend.models.matchup import Matchup
 from backend.models.season import Season
@@ -85,6 +86,16 @@ def load_manager_overrides(
     }
 
 
+def _format_name_token(token: str) -> str:
+    """Normalize a name token, capitalizing all-lowercase words while preserving mixed case."""
+    cleaned = token.strip()
+    if not cleaned:
+        return ""
+    if cleaned.islower():
+        return " ".join(part.capitalize() for part in cleaned.split())
+    return cleaned
+
+
 def resolve_or_upsert_managers(
     session: Session,
     payload: dict[str, Any],
@@ -115,20 +126,29 @@ def resolve_or_upsert_managers(
             continue
         members_data[raw_guid] = m
 
-    # 2. Collect all owner GUIDs from payload['teams']
+    # 2. Collect all owner GUIDs and team avatars/logos from payload['teams']
     needed_guids: set[str] = set(members_data.keys())
+    owner_logo_map: dict[str, str] = {}
     for t in payload.get("teams", []):
         espn_t_id = t.get("id")
+        t_logo = t.get("logo") or t.get("logoUrl")
         # Check team season override first
         if (season_year, espn_t_id) in team_season_overrides:
-            needed_guids.add(team_season_overrides[(season_year, espn_t_id)])
+            override_guid = team_season_overrides[(season_year, espn_t_id)]
+            needed_guids.add(override_guid)
+            if t_logo:
+                owner_logo_map[override_guid] = t_logo
 
         primary_owner = t.get("primaryOwner")
         if primary_owner:
             needed_guids.add(primary_owner)
+            if t_logo:
+                owner_logo_map[primary_owner] = t_logo
         for owner in t.get("owners", []):
             if owner:
                 needed_guids.add(owner)
+                if t_logo and owner not in owner_logo_map:
+                    owner_logo_map[owner] = t_logo
 
     # 3. Canonicalize all needed GUIDs
     canonical_to_info: dict[str, dict[str, Any]] = {}
@@ -136,24 +156,37 @@ def resolve_or_upsert_managers(
         canonical_guid = guid_to_canonical.get(raw_guid, raw_guid)
         m_info = members_data.get(raw_guid, {})
 
+        first = _format_name_token(str(m_info.get("firstName") or ""))
+        last = _format_name_token(str(m_info.get("lastName") or ""))
+        real_name = f"{first} {last}".strip()
+
         display_name = ""
         if raw_guid in display_name_overrides:
             display_name = display_name_overrides[raw_guid]
         elif canonical_guid in display_name_overrides:
             display_name = display_name_overrides[canonical_guid]
+        elif real_name:
+            display_name = real_name
         elif m_info.get("displayName"):
-            display_name = m_info["displayName"]
+            display_name = str(m_info["displayName"]).strip()
         else:
-            first = m_info.get("firstName", "").strip()
-            last = m_info.get("lastName", "").strip()
-            name_combined = f"{first} {last}".strip()
-            display_name = name_combined or canonical_guid
+            display_name = canonical_guid
 
-        if canonical_guid not in canonical_to_info or display_name != canonical_guid:
+        avatar_url = (
+            m_info.get("avatarUrl")
+            or (m_info.get("avatar") or {}).get("imageUrl")
+            or owner_logo_map.get(raw_guid)
+            or owner_logo_map.get(canonical_guid)
+        )
+
+        existing_info = canonical_to_info.get(canonical_guid)
+        if existing_info is None or display_name != canonical_guid:
             canonical_to_info[canonical_guid] = {
                 "display_name": display_name,
-                "avatar_url": m_info.get("avatarUrl") or m_info.get("avatar", {}).get("imageUrl"),
+                "avatar_url": avatar_url or (existing_info.get("avatar_url") if existing_info else None),
             }
+        elif avatar_url and not existing_info.get("avatar_url"):
+            existing_info["avatar_url"] = avatar_url
 
     # 4. Upsert Manager records in database
     managers_by_guid: dict[str, Manager] = {}
@@ -166,7 +199,7 @@ def resolve_or_upsert_managers(
         if mgr:
             if info["display_name"] and mgr.display_name != info["display_name"]:
                 mgr.display_name = info["display_name"]
-            if info["avatar_url"] and not mgr.avatar_url:
+            if info["avatar_url"]:
                 mgr.avatar_url = info["avatar_url"]
         else:
             mgr = Manager(
@@ -251,6 +284,7 @@ def upsert_season_from_payload(
         is_completed = True
 
     has_transaction_data = season_year >= 2018
+    payout_rules = load_season_payout_rules(season_year)
 
     if not season:
         season = Season(
@@ -267,10 +301,15 @@ def upsert_season_from_payload(
             scoring_settings=scoring_settings,
             roster_slots=roster_settings.get("lineupSlotCounts", {}),
             faab_budget=faab_budget,
-            weekly_win_payout=Decimal("10.00"),
-            champion_payout=Decimal("600.00"),
-            runner_up_payout=Decimal("300.00"),
-            third_place_payout=Decimal("100.00"),
+            weekly_win_payout=payout_rules["weekly_win_payout"],
+            weekly_high_score_payout=payout_rules["weekly_high_score_payout"],
+            weekly_high_score_loss_payout=payout_rules["weekly_high_score_loss_payout"],
+            champion_payout=payout_rules["champion_payout"],
+            runner_up_payout=payout_rules["runner_up_payout"],
+            third_place_payout=payout_rules["third_place_payout"],
+            fourth_place_payout=payout_rules["fourth_place_payout"],
+            fifth_place_payout=payout_rules["fifth_place_payout"],
+            regular_season_most_points_payout=payout_rules["regular_season_most_points_payout"],
             has_transaction_data=has_transaction_data,
             has_boxscore_data=True,
         )
@@ -286,6 +325,15 @@ def upsert_season_from_payload(
         season.playoff_matchup_length = playoff_matchup_length
         season.scoring_type = scoring_type
         season.faab_budget = faab_budget
+        season.weekly_win_payout = payout_rules["weekly_win_payout"]
+        season.weekly_high_score_payout = payout_rules["weekly_high_score_payout"]
+        season.weekly_high_score_loss_payout = payout_rules["weekly_high_score_loss_payout"]
+        season.champion_payout = payout_rules["champion_payout"]
+        season.runner_up_payout = payout_rules["runner_up_payout"]
+        season.third_place_payout = payout_rules["third_place_payout"]
+        season.fourth_place_payout = payout_rules["fourth_place_payout"]
+        season.fifth_place_payout = payout_rules["fifth_place_payout"]
+        season.regular_season_most_points_payout = payout_rules["regular_season_most_points_payout"]
         if scoring_settings:
             season.scoring_settings = scoring_settings
         if roster_settings.get("lineupSlotCounts"):
@@ -365,6 +413,12 @@ def upsert_teams_from_payload(
             canonical_co = guid_to_canonical.get(co_guid, co_guid)
             co_manager = manager_map.get(canonical_co)
 
+        # Attach ESPN team avatar to manager / co-manager
+        if logo_url and manager:
+            manager.avatar_url = logo_url
+        if logo_url and co_manager and not co_manager.avatar_url:
+            co_manager.avatar_url = logo_url
+
         record = t.get("record", {})
         overall = record.get("overall", {})
         home = record.get("home", {})
@@ -390,8 +444,10 @@ def upsert_teams_from_payload(
         streak_type = overall.get("streakType") or t.get("streakType")
         streak_length = int(overall.get("streakLength") or t.get("streakLength", 0))
 
-        playoff_seed = t.get("playoffSeed")
-        final_standing = t.get("rankCalculatedFinal")
+        raw_seed = t.get("playoffSeed")
+        playoff_seed = int(raw_seed) if raw_seed and int(raw_seed) > 0 else None
+        raw_final = t.get("rankCalculatedFinal")
+        final_standing = int(raw_final) if raw_final and int(raw_final) > 0 else None
 
         tx_counter = t.get("transactionCounter", {})
         budget_spent = tx_counter.get("acquisitionBudgetSpent", 0)

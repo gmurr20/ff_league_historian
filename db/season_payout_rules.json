@@ -1,0 +1,40 @@
+{
+  "_comment": "Annual league payout rules per season. Historical seasons retain their historical payouts, while future seasons inherit defaults unless overridden.",
+  "default": {
+    "weekly_win_payout": 10.00,
+    "weekly_high_score_payout": 10.00,
+    "weekly_high_score_loss_payout": 10.00,
+    "champion_payout": 500.00,
+    "runner_up_payout": 300.00,
+    "third_place_payout": 200.00,
+    "fourth_place_payout": 150.00,
+    "fifth_place_payout": 100.00,
+    "regular_season_most_points_payout": 30.00
+  },
+  "season_overrides": {
+    "2022": {
+      "champion_payout": 600.00,
+      "runner_up_payout": 300.00,
+      "third_place_payout": 100.00,
+      "fourth_place_payout": 0.00,
+      "fifth_place_payout": 0.00,
+      "regular_season_most_points_payout": 0.00
+    },
+    "2023": {
+      "champion_payout": 600.00,
+      "runner_up_payout": 300.00,
+      "third_place_payout": 100.00,
+      "fourth_place_payout": 0.00,
+      "fifth_place_payout": 0.00,
+      "regular_season_most_points_payout": 0.00
+    },
+    "2024": {
+      "champion_payout": 500.00,
+      "runner_up_payout": 300.00,
+      "third_place_payout": 200.00,
+      "fourth_place_payout": 150.00,
+      "fifth_place_payout": 100.00,
+      "regular_season_most_points_payout": 30.00
+    }
+  }
+}

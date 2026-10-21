@@ -2,7 +2,9 @@
 
 Purpose:
     Represents financial payouts for regular-season weekly wins ($10), ties ($5),
-    and season championship podium prizes (CHAMPION, RUNNER_UP, THIRD_PLACE).
+    weekly high scores ($10), weekly high scores in a loss ($10), regular-season
+    most points champion ($30), and season final placement prizes (1st: $500, 2nd: $300,
+    3rd: $200, 4th: $150, 5th: $100).
     Maintains dual-dialect nulls-not-distinct uniqueness across PostgreSQL 16 and SQLite.
 """
 

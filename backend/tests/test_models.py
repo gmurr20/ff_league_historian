@@ -328,6 +328,63 @@ def test_conflicting_weekly_payout_rejection(session_factory: sessionmaker[Sessi
             session.add(tie_award)
 
 
+def test_multiple_weekly_payout_types_allowed_and_duplicates_rejected(
+    session_factory: sessionmaker[Session],
+) -> None:
+    """Verifies that a manager can receive both a win and high-score payout in the same week,
+    while duplicate entries of the same type are rejected."""
+    with get_session(session_factory) as session:
+        season = Season(season_year=2023, league_id="1", league_name="League")
+        mgr = Manager(espn_member_id="{MGR_MULTI}", display_name="Manager Multi")
+        session.add_all([season, mgr])
+        session.flush()
+
+        team = Team(season_year=2023, espn_team_id=1, team_name="T1", manager_id=mgr.id)
+        session.add(team)
+        session.flush()
+
+        # Manager can receive both WEEKLY_WIN and WEEKLY_HIGH_SCORE in week 1
+        win_award = EarningsLedger(
+            manager_id=mgr.id,
+            team_id=team.id,
+            season_year=2023,
+            week=1,
+            entry_type="WEEKLY_WIN",
+            amount=Decimal("10.00"),
+        )
+        high_score_award = EarningsLedger(
+            manager_id=mgr.id,
+            team_id=team.id,
+            season_year=2023,
+            week=1,
+            entry_type="WEEKLY_HIGH_SCORE",
+            amount=Decimal("10.00"),
+        )
+        session.add_all([win_award, high_score_award])
+
+    # Verify both were saved
+    with get_session(session_factory) as session:
+        entries = session.query(EarningsLedger).filter_by(season_year=2023, week=1).all()
+        assert len(entries) == 2
+        types = {e.entry_type for e in entries}
+        assert types == {"WEEKLY_WIN", "WEEKLY_HIGH_SCORE"}
+
+    # Attempting to add a duplicate WEEKLY_HIGH_SCORE award for the same manager in the same week
+    with pytest.raises(IntegrityError):
+        with get_session(session_factory) as session:
+            mgr = session.query(Manager).first()
+            team = session.query(Team).first()
+            dup_hs = EarningsLedger(
+                manager_id=mgr.id,
+                team_id=team.id,
+                season_year=2023,
+                week=1,
+                entry_type="WEEKLY_HIGH_SCORE",
+                amount=Decimal("10.00"),
+            )
+            session.add(dup_hs)
+
+
 def test_schema_sql_ddl_completeness() -> None:
     """Verifies that db/schema.sql contains required tables, constraints, and comments."""
     schema_file = REPO_ROOT / "db" / "schema.sql"

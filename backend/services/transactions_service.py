@@ -39,6 +39,7 @@ def get_transactions_summary(
     # Pre-fetch master managers, teams, and players
     managers = session.query(Manager).all()
     mgr_map = {m.id: m.display_name for m in managers}
+    mgr_avatar_map = {m.id: m.avatar_url for m in managers}
 
     teams = session.query(Team).filter(Team.season_year == season.season_year).all()
     team_map = {t.id: t for t in teams}
@@ -135,6 +136,11 @@ def get_transactions_summary(
                     "transaction_id": ltx.id,
                     "team_id": ltx.team_id,
                     "team_name": l_team.team_name if l_team else None,
+                    "logo_url": (
+                        l_team.logo_url
+                        if l_team and l_team.logo_url
+                        else mgr_avatar_map.get(l_mgr_id)
+                    ),
                     "manager_id": l_mgr_id,
                     "manager_name": mgr_map.get(l_mgr_id, ""),
                     "bid_amount": ltx.bid_amount,
@@ -166,6 +172,7 @@ def get_transactions_summary(
                 "winner": {
                     "team_id": win_team.id,
                     "team_name": win_team.team_name,
+                    "logo_url": win_team.logo_url or mgr_avatar_map.get(win_team.manager_id),
                     "manager_id": win_team.manager_id,
                     "manager_name": mgr_map.get(win_team.manager_id, ""),
                     "bid_amount": win_tx.bid_amount,
@@ -241,6 +248,7 @@ def get_transactions_summary(
                 "manager_id": team.manager_id,
                 "display_name": mgr_map.get(team.manager_id, ""),
                 "team_name": team.team_name,
+                "logo_url": team.logo_url or mgr_avatar_map.get(team.manager_id),
                 "faab_budget": faab_budget,
                 "faab_spent": faab_spent,
                 "faab_remaining": team.faab_remaining,
@@ -296,6 +304,11 @@ def get_transactions_summary(
                 "status": tx.status,
                 "team_id": tx.team_id,
                 "team_name": tx_team.team_name if tx_team else None,
+                "logo_url": (
+                    tx_team.logo_url
+                    if tx_team and tx_team.logo_url
+                    else (mgr_avatar_map.get(tx_mgr_id) if tx_mgr_id else None)
+                ),
                 "manager_id": tx_mgr_id,
                 "manager_name": tx_mgr_name,
                 "bid_amount": tx.bid_amount,

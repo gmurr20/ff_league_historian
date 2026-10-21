@@ -267,6 +267,13 @@ def backfill_history(
         if all_txs:
             payload = dict(payload)
             payload["transactions"] = all_txs
+            snap_to_update = (
+                session.query(RawEspnSnapshot)
+                .filter_by(season_year=year, view_name="mCombined", scoring_period=0)
+                .first()
+            )
+            if snap_to_update:
+                snap_to_update.payload = payload
 
         players = upsert_players_from_payload(session, payload)
         lineups = upsert_weekly_lineups_from_payload(session, season, payload, team_map)

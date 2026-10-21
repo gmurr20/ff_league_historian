@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import type { BiddingWar } from '@/types/api';
 import SwipeDrawer from '@/components/ui/SwipeDrawer.vue';
+import TeamAvatar from '@/components/ui/TeamAvatar.vue';
 import { Flame, Trophy, Calendar, Hash, DollarSign, TrendingUp } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -54,6 +55,7 @@ const bidLadder = computed(() => {
       isWinner: true,
       manager_name: props.war.winner.manager_name,
       team_name: props.war.winner.team_name,
+      logo_url: props.war.winner.logo_url,
       bid_amount: props.war.winner.bid_amount,
       failure_reason: null as string | null,
       waiver_priority: null as number | null,
@@ -63,6 +65,7 @@ const bidLadder = computed(() => {
       isWinner: false,
       manager_name: b.manager_name,
       team_name: b.team_name,
+      logo_url: b.logo_url,
       bid_amount: b.bid_amount,
       failure_reason: b.failure_reason,
       waiver_priority: b.waiver_priority,
@@ -194,10 +197,16 @@ const claimRoi = computed(() => {
                 #{{ index + 1 }}
               </div>
 
+              <TeamAvatar
+                :src="bid.logo_url"
+                :name="bid.team_name || bid.manager_name"
+                size="sm"
+              />
+
               <div class="min-w-0">
                 <div class="flex items-center gap-1.5">
-                  <span class="font-bold text-xs text-slate-100 truncate" :title="bid.manager_name">
-                    {{ bid.manager_name }}
+                  <span class="font-bold text-xs text-slate-100 truncate" :title="bid.team_name">
+                    {{ bid.team_name }}
                   </span>
                   <span
                     v-if="bid.isWinner"
@@ -207,8 +216,8 @@ const claimRoi = computed(() => {
                     <span>Claim Won</span>
                   </span>
                 </div>
-                <div class="text-[11px] text-slate-400 truncate mt-0.5" :title="bid.team_name">
-                  {{ bid.team_name }}
+                <div class="text-[11px] text-slate-400 truncate mt-0.5" :title="bid.manager_name">
+                  {{ bid.manager_name }}
                 </div>
               </div>
             </div>

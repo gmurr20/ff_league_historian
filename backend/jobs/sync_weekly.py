@@ -26,7 +26,11 @@ from backend.jobs.deep_parsers import (
     upsert_weekly_lineups_from_payload,
 )
 from backend.jobs.espn_client import EspnClient, get_configured_league_ids
-from backend.jobs.ledger_reconciler import reconcile_podium_ledger, reconcile_week_ledger
+from backend.jobs.ledger_reconciler import (
+    reconcile_podium_ledger,
+    reconcile_regular_season_points_ledger,
+    reconcile_week_ledger,
+)
 from backend.jobs.parsers import (
     load_manager_overrides,
     resolve_or_upsert_managers,
@@ -204,6 +208,11 @@ def sync_weekly(
     for w in weeks_to_sync:
         entries = reconcile_week_ledger(session, season, w)
         reconciled_count += len(entries)
+
+    # Reconcile regular season most points if regular season has concluded (week 15+)
+    if season.current_week > season.regular_season_weeks or season.is_completed:
+        reg_pts = reconcile_regular_season_points_ledger(session, season)
+        reconciled_count += len(reg_pts)
 
     # 5. Championship auto-completion transition
     # Check if final championship matchup is completed

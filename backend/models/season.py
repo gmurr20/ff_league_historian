@@ -51,14 +51,29 @@ class Season(Base):
     weekly_win_payout: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), nullable=False, default=Decimal("10.00")
     )
+    weekly_high_score_payout: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=Decimal("10.00")
+    )
+    weekly_high_score_loss_payout: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=Decimal("10.00")
+    )
     champion_payout: Mapped[Decimal] = mapped_column(
-        Numeric(10, 2), nullable=False, default=Decimal("600.00")
+        Numeric(10, 2), nullable=False, default=Decimal("500.00")
     )
     runner_up_payout: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), nullable=False, default=Decimal("300.00")
     )
     third_place_payout: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=Decimal("200.00")
+    )
+    fourth_place_payout: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=Decimal("150.00")
+    )
+    fifth_place_payout: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), nullable=False, default=Decimal("100.00")
+    )
+    regular_season_most_points_payout: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=Decimal("30.00")
     )
     has_transaction_data: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     has_boxscore_data: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import type { ActiveTrader } from '@/types/api';
+import TeamAvatar from '@/components/ui/TeamAvatar.vue';
 import { TrendingUp, TrendingDown, ArrowDownLeft, ArrowUpRight, Flame } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -71,14 +72,24 @@ const sortedTraders = computed(() => {
         class="stadium-card rounded-xl p-3 border border-slate-800 hover:border-slate-700 transition-all flex flex-col justify-between gap-2.5"
       >
         <!-- Manager & Trade Volume Header -->
-        <div class="flex items-center justify-between">
+        <div class="flex items-center justify-between gap-2">
           <div class="flex items-center gap-2 min-w-0">
             <span class="w-5 h-5 rounded-md bg-slate-800 text-[11px] font-bold font-mono text-slate-400 flex items-center justify-center shrink-0">
               {{ idx + 1 }}
             </span>
-            <span class="font-bold text-xs text-slate-100 truncate" :title="trader.display_name">
-              {{ trader.display_name }}
-            </span>
+            <TeamAvatar
+              :src="trader.avatar_url"
+              :name="trader.team_name || trader.display_name"
+              size="sm"
+            />
+            <div class="min-w-0">
+              <div class="font-bold text-xs text-slate-100 truncate" :title="trader.team_name || trader.display_name">
+                {{ trader.team_name || trader.display_name }}
+              </div>
+              <div class="text-[10px] text-slate-400 truncate" :title="trader.display_name">
+                {{ trader.display_name }}
+              </div>
+            </div>
           </div>
 
           <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-mono font-bold bg-slate-800/80 text-slate-300 border border-slate-700/60 shrink-0">

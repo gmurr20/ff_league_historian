@@ -57,13 +57,16 @@ export default defineConfig({
             },
           },
           {
-            urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp)$/,
+            urlPattern: /(?:mystique-api\.fantasy\.espn\.com\/apis\/v1\/domains\/lm\/images\/|\.(?:png|jpg|jpeg|svg|gif|webp)$)/i,
             handler: 'StaleWhileRevalidate',
             options: {
               cacheName: 'images-cache',
               expiration: {
-                maxEntries: 100,
+                maxEntries: 150,
                 maxAgeSeconds: 86400 * 30, // 30 days
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
               },
             },
           },

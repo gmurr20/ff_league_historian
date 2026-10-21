@@ -51,7 +51,8 @@ def _create_custom_indexes(target: Any, connection: Any, **kw: Any) -> None:
     connection.execute(
         text(
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_earnings_weekly_single "
-            "ON earnings_ledger (manager_id, season_year, week) WHERE week IS NOT NULL"
+            "ON earnings_ledger (manager_id, season_year, week) "
+            "WHERE entry_type IN ('WEEKLY_WIN', 'WEEKLY_TIE')"
         )
     )
 
@@ -116,4 +117,28 @@ def init_db(target_engine: Engine | None = None) -> None:
 
     active_engine = target_engine or engine
     Base.metadata.create_all(bind=active_engine)
+    with active_engine.connect() as conn:
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_earnings_nulls_not_distinct "
+                "ON earnings_ledger (manager_id, season_year, COALESCE(week, -1), entry_type)"
+            )
+        )
+        if active_engine.dialect.name == "sqlite":
+            res = conn.execute(
+                text(
+                    "SELECT sql FROM sqlite_master "
+                    "WHERE type='index' AND name='uq_earnings_weekly_single'"
+                )
+            ).scalar()
+            if res and "WHERE WEEK IS NOT NULL" in res.upper():
+                conn.execute(text("DROP INDEX IF EXISTS uq_earnings_weekly_single"))
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_earnings_weekly_single "
+                "ON earnings_ledger (manager_id, season_year, week) "
+                "WHERE entry_type IN ('WEEKLY_WIN', 'WEEKLY_TIE')"
+            )
+        )
+        conn.commit()
 

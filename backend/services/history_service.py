@@ -23,16 +23,37 @@ def get_head_to_head(
 ) -> dict[str, Any]:
     """Calculate career rivalry matrix and pairwise comparative deep-dive."""
     managers = session.query(Manager).order_by(Manager.display_name.asc()).all()
-    mgr_ref_list = [
-        {"manager_id": m.id, "display_name": m.display_name} for m in managers
-    ]
     mgr_map = {m.id: m.display_name for m in managers}
+    mgr_avatar_map = {m.id: m.avatar_url for m in managers}
 
-    # Pre-fetch all teams to resolve team_id -> (manager_id, team_name)
-    teams = session.query(Team).all()
-    team_info: dict[int, tuple[int, str]] = {
-        t.id: (t.manager_id, t.team_name) for t in teams
+    # Pre-fetch all teams to resolve team_id -> (manager_id, team_name, logo_url)
+    teams = session.query(Team).order_by(Team.season_year.desc(), Team.id.desc()).all()
+    team_info: dict[int, tuple[int, str, str | None]] = {
+        t.id: (t.manager_id, t.team_name, t.logo_url) for t in teams
     }
+    latest_team_by_mgr: dict[int, Team] = {}
+    for t in teams:
+        if t.manager_id not in latest_team_by_mgr:
+            latest_team_by_mgr[t.manager_id] = t
+
+    mgr_ref_list = [
+        {
+            "manager_id": m.id,
+            "display_name": m.display_name,
+            "team_name": (
+                latest_team_by_mgr[m.id].team_name
+                if m.id in latest_team_by_mgr
+                else m.display_name
+            ),
+            "avatar_url": (
+                latest_team_by_mgr[m.id].logo_url
+                if m.id in latest_team_by_mgr and latest_team_by_mgr[m.id].logo_url
+                else m.avatar_url
+            ),
+        }
+        for m in managers
+    ]
+    mgr_ref_map = {item["manager_id"]: item for item in mgr_ref_list}
 
     # CRITICAL GUARDRAIL #4: Filter completed matchups in REGULAR or WINNERS_BRACKET only
     valid_matchups = (
@@ -57,8 +78,8 @@ def get_head_to_head(
         if not h_info or not a_info:
             continue
 
-        h_mgr_id, _ = h_info
-        a_mgr_id, _ = a_info
+        h_mgr_id, _, _ = h_info
+        a_mgr_id, _, _ = a_info
         if h_mgr_id == a_mgr_id:
             continue
 
@@ -140,8 +161,8 @@ def get_head_to_head(
             if not h_info or not a_info:
                 continue
 
-            h_mgr_id, h_name = h_info
-            a_mgr_id, a_name = a_info
+            h_mgr_id, h_name, h_logo = h_info
+            a_mgr_id, a_name, a_logo = a_info
 
             # Check if this matchup involves both specified managers
             is_match = (h_mgr_id == manager_a_id and a_mgr_id == manager_b_id) or (
@@ -155,6 +176,8 @@ def get_head_to_head(
             b_score = float(m.away_score if is_a_home else m.home_score)
             a_team_name = h_name if is_a_home else a_name
             b_team_name = a_name if is_a_home else h_name
+            a_logo_url = (h_logo if is_a_home else a_logo) or mgr_avatar_map.get(manager_a_id)
+            b_logo_url = (a_logo if is_a_home else h_logo) or mgr_avatar_map.get(manager_b_id)
 
             winner_id: int | None = None
             if a_score > b_score:
@@ -203,6 +226,8 @@ def get_head_to_head(
                     "matchup_type": m.matchup_type,
                     "manager_a_team_name": a_team_name,
                     "manager_b_team_name": b_team_name,
+                    "manager_a_logo_url": a_logo_url,
+                    "manager_b_logo_url": b_logo_url,
                     "manager_a_score": a_score,
                     "manager_b_score": b_score,
                     "winner_manager_id": winner_id,
@@ -259,14 +284,24 @@ def get_head_to_head(
         }
 
         pair_detail = {
-            "manager_a": {
-                "manager_id": manager_a_id,
-                "display_name": mgr_map.get(manager_a_id, ""),
-            },
-            "manager_b": {
-                "manager_id": manager_b_id,
-                "display_name": mgr_map.get(manager_b_id, ""),
-            },
+            "manager_a": mgr_ref_map.get(
+                manager_a_id,
+                {
+                    "manager_id": manager_a_id,
+                    "display_name": mgr_map.get(manager_a_id, ""),
+                    "team_name": mgr_map.get(manager_a_id, ""),
+                    "avatar_url": mgr_avatar_map.get(manager_a_id),
+                },
+            ),
+            "manager_b": mgr_ref_map.get(
+                manager_b_id,
+                {
+                    "manager_id": manager_b_id,
+                    "display_name": mgr_map.get(manager_b_id, ""),
+                    "team_name": mgr_map.get(manager_b_id, ""),
+                    "avatar_url": mgr_avatar_map.get(manager_b_id),
+                },
+            ),
             "regular_season": reg_split,
             "playoffs": play_split,
             "combined": combined_split,

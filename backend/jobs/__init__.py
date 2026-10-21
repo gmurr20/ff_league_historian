@@ -22,6 +22,7 @@ from backend.jobs.deep_parsers import (
 from backend.jobs.espn_client import EspnAccessError, EspnClient, get_configured_league_ids
 from backend.jobs.ledger_reconciler import (
     reconcile_podium_ledger,
+    reconcile_regular_season_points_ledger,
     reconcile_season_ledger,
     reconcile_week_ledger,
 )
@@ -32,6 +33,7 @@ from backend.jobs.parsers import (
     upsert_season_from_payload,
     upsert_teams_from_payload,
 )
+from backend.jobs.payout_policy import load_season_payout_rules
 
 
 def __getattr__(name: str) -> Any:
@@ -57,7 +59,9 @@ __all__ = [
     "upsert_matchups_from_payload",
     "reconcile_week_ledger",
     "reconcile_podium_ledger",
+    "reconcile_regular_season_points_ledger",
     "reconcile_season_ledger",
+    "load_season_payout_rules",
     "backfill_history",
     "sync_weekly",
     "normalize_position",

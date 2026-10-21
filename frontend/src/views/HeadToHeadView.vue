@@ -41,7 +41,7 @@ const managerBOptions = computed<H2HManagerRef[]>(() => {
 // Drawer Subtitle
 const drawerSubtitle = computed(() => {
   if (!h2hData.value?.pair_detail) return undefined;
-  return `${h2hData.value.pair_detail.manager_a.display_name} vs ${h2hData.value.pair_detail.manager_b.display_name}`;
+  return `${h2hData.value.pair_detail.manager_a.team_name} (${h2hData.value.pair_detail.manager_a.display_name}) vs ${h2hData.value.pair_detail.manager_b.team_name} (${h2hData.value.pair_detail.manager_b.display_name})`;
 });
 
 // Initial Data Fetch
@@ -269,7 +269,7 @@ onMounted(() => {
                   :key="mgr.manager_id"
                   :value="mgr.manager_id"
                 >
-                  {{ mgr.display_name }}
+                  {{ mgr.team_name }} ({{ mgr.display_name }})
                 </option>
               </select>
             </div>
@@ -302,7 +302,7 @@ onMounted(() => {
                   :key="mgr.manager_id"
                   :value="mgr.manager_id"
                 >
-                  {{ mgr.display_name }}
+                  {{ mgr.team_name }} ({{ mgr.display_name }})
                 </option>
               </select>
             </div>

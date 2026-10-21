@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { H2HManagerRef, H2HMatrixEntry } from '@/types/api';
+import TeamAvatar from '@/components/ui/TeamAvatar.vue';
 import { Swords, Info } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -135,19 +136,28 @@ function handleCellClick(rowManagerId: number, colManagerId: number) {
               <th
                 v-for="col in managers"
                 :key="col.manager_id"
-                class="sticky top-0 z-10 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 p-2 text-center min-w-[76px] transition-colors"
+                class="sticky top-0 z-10 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 p-2 text-center min-w-[88px] transition-colors"
                 :class="[
                   selectedManagerB === col.manager_id
                     ? 'bg-emerald-950/40 text-emerald-300'
                     : 'text-slate-300',
                 ]"
               >
-                <span
-                  class="block text-[11px] font-bold truncate max-w-[72px] mx-auto"
-                  :title="col.display_name"
-                >
-                  {{ col.display_name }}
-                </span>
+                <div class="flex flex-col items-center gap-0.5">
+                  <TeamAvatar :src="col.avatar_url" :name="col.team_name" size="xs" rounded="lg" />
+                  <span
+                    class="block text-[10px] font-bold truncate max-w-[80px] leading-tight mt-0.5"
+                    :title="col.team_name"
+                  >
+                    {{ col.team_name }}
+                  </span>
+                  <span
+                    class="block text-[9px] text-slate-400 font-normal truncate max-w-[80px] leading-tight"
+                    :title="col.display_name"
+                  >
+                    {{ col.display_name }}
+                  </span>
+                </div>
               </th>
             </tr>
           </thead>
@@ -161,15 +171,23 @@ function handleCellClick(rowManagerId: number, colManagerId: number) {
             >
               <!-- Row Manager Header (Sticky First Column) -->
               <th
-                class="sticky left-0 z-20 bg-slate-900/95 backdrop-blur-md border-r border-slate-800 p-2.5 min-w-[120px] max-w-[140px] transition-colors"
+                class="sticky left-0 z-20 bg-slate-900/95 backdrop-blur-md border-r border-slate-800 p-2.5 min-w-[140px] max-w-[165px] transition-colors"
                 :class="[
                   selectedManagerA === row.manager_id
                     ? 'bg-emerald-950/40 text-emerald-300'
                     : 'text-slate-200',
                 ]"
               >
-                <div class="text-xs font-bold truncate" :title="row.display_name">
-                  {{ row.display_name }}
+                <div class="flex items-center gap-2 min-w-0">
+                  <TeamAvatar :src="row.avatar_url" :name="row.team_name" size="xs" rounded="lg" />
+                  <div class="min-w-0">
+                    <div class="text-xs font-bold truncate leading-tight" :title="row.team_name">
+                      {{ row.team_name }}
+                    </div>
+                    <div class="text-[10px] text-slate-400 font-normal truncate leading-tight mt-0.5" :title="row.display_name">
+                      {{ row.display_name }}
+                    </div>
+                  </div>
                 </div>
               </th>
 

@@ -250,14 +250,18 @@ def test_e2e_api_response_keys_match_typescript_contracts() -> None:
     assert_interface(leader, "EarningsLeaderboardEntry")
     assert len(leader["season_breakdown"]) > 0
     assert_interface(leader["season_breakdown"][0], "ManagerSeasonBreakdown")
+    if len(earnings_json.get("weekly_nuanced_payouts", [])) > 0:
+        assert_interface(earnings_json["weekly_nuanced_payouts"][0], "WeeklyNuancedPayoutEntry")
 
-    # 4. Standings endpoint -> StandingsResponse + StandingEntry
+    # 4. Standings endpoint -> StandingsResponse + StandingEntry + WeeklyStandingPoint
     res_standings = client.get("/api/v1/standings/current")
     assert res_standings.status_code == 200
     standings_json = res_standings.get_json()
     assert_interface(standings_json, "StandingsResponse")
     assert len(standings_json["standings"]) > 0
     assert_interface(standings_json["standings"][0], "StandingEntry")
+    assert len(standings_json["standings"][0]["weekly_history"]) > 0
+    assert_interface(standings_json["standings"][0]["weekly_history"][0], "WeeklyStandingPoint")
 
     # 5. Head-to-Head endpoint (with pairwise query) -> HeadToHeadResponse + H2HPairDetail
     res_h2h = client.get("/api/v1/history/head-to-head?managerA=1&managerB=2")

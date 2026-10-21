@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import type { BiddingWar } from '@/types/api';
+import TeamAvatar from '@/components/ui/TeamAvatar.vue';
 import { Flame, Trophy, ChevronRight, XCircle } from 'lucide-vue-next';
 
 defineProps<{
@@ -112,20 +113,23 @@ function getFailureBadgeClass(reason: string): string {
       <!-- Winning Bid Card -->
       <div class="bg-emerald-950/20 rounded-xl p-3 border border-emerald-500/30 flex items-center justify-between gap-2 shadow-sm">
         <div class="flex items-center gap-2.5 min-w-0">
-          <div class="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
-            <Trophy class="w-4 h-4 text-emerald-400" />
-          </div>
+          <TeamAvatar
+            :src="war.winner.logo_url"
+            :name="war.winner.team_name || war.winner.manager_name"
+            size="sm"
+          />
           <div class="min-w-0">
             <div class="flex items-center gap-1.5">
-              <span class="font-bold text-xs text-slate-100 truncate" :title="war.winner.manager_name">
-                {{ war.winner.manager_name }}
+              <span class="font-bold text-xs text-slate-100 truncate" :title="war.winner.team_name">
+                {{ war.winner.team_name }}
               </span>
-              <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/20 px-1.5 py-0.2 rounded font-mono">
-                Won
+              <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/20 px-1.5 py-0.2 rounded font-mono flex items-center gap-0.5">
+                <Trophy class="w-2.5 h-2.5 text-emerald-400" />
+                <span>Won</span>
               </span>
             </div>
-            <div class="text-[11px] text-slate-400 truncate mt-0.5" :title="war.winner.team_name">
-              {{ war.winner.team_name }}
+            <div class="text-[11px] text-slate-400 truncate mt-0.5" :title="war.winner.manager_name">
+              {{ war.winner.manager_name }}
             </div>
           </div>
         </div>
@@ -157,15 +161,17 @@ function getFailureBadgeClass(reason: string): string {
             class="bg-slate-900/70 rounded-lg p-2.5 border border-slate-800/80 flex items-center justify-between gap-2"
           >
             <div class="flex items-center gap-2 min-w-0">
-              <div class="w-6 h-6 rounded-md bg-slate-800 text-slate-400 text-xs font-bold font-mono flex items-center justify-center shrink-0">
-                -
-              </div>
+              <TeamAvatar
+                :src="loser.logo_url"
+                :name="loser.team_name || loser.manager_name"
+                size="xs"
+              />
               <div class="min-w-0">
-                <div class="font-semibold text-xs text-slate-200 truncate" :title="loser.manager_name">
-                  {{ loser.manager_name }}
-                </div>
-                <div class="text-[10px] text-slate-500 truncate" :title="loser.team_name">
+                <div class="font-semibold text-xs text-slate-200 truncate" :title="loser.team_name">
                   {{ loser.team_name }}
+                </div>
+                <div class="text-[10px] text-slate-500 truncate" :title="loser.manager_name">
+                  {{ loser.manager_name }}
                 </div>
               </div>
             </div>

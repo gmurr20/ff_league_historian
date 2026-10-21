@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import type { TradeDetail } from '@/types/api';
+import TeamAvatar from '@/components/ui/TeamAvatar.vue';
 import { Trophy, Calendar, ChevronRight, Scale } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -51,7 +52,7 @@ function getPositionClass(pos: string): string {
 function getWinnerName(winnerId: number | null): string | null {
   if (winnerId == null) return null;
   const winnerSide = props.trade.sides.find((s) => s.manager_id === winnerId);
-  return winnerSide ? winnerSide.manager_name : null;
+  return winnerSide ? winnerSide.team_name || winnerSide.manager_name : null;
 }
 </script>
 
@@ -114,20 +115,27 @@ function getWinnerName(winnerId: number | null): string | null {
       >
         <!-- Side Manager & Total Realized Points Header -->
         <div class="flex items-start justify-between gap-2">
-          <div class="min-w-0">
-            <div class="flex items-center gap-1.5">
-              <span class="font-bold text-sm text-slate-100 truncate" :title="side.manager_name">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <TeamAvatar
+              :src="side.logo_url"
+              :name="side.team_name || side.manager_name"
+              size="sm"
+            />
+            <div class="min-w-0">
+              <div class="flex items-center gap-1.5">
+                <span class="font-bold text-sm text-slate-100 truncate" :title="side.team_name">
+                  {{ side.team_name }}
+                </span>
+                <span
+                  v-if="side.manager_id === trade.winner_manager_id"
+                  class="px-1.5 py-0.2 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                >
+                  Winner
+                </span>
+              </div>
+              <div class="text-xs text-slate-400 truncate mt-0.5" :title="side.manager_name">
                 {{ side.manager_name }}
-              </span>
-              <span
-                v-if="side.manager_id === trade.winner_manager_id"
-                class="px-1.5 py-0.2 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30"
-              >
-                Winner
-              </span>
-            </div>
-            <div class="text-xs text-slate-400 truncate mt-0.5" :title="side.team_name">
-              {{ side.team_name }}
+              </div>
             </div>
           </div>
 

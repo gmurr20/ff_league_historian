@@ -76,6 +76,7 @@ def get_meta(session: Session) -> dict[str, Any]:
             "id": m.id,
             "espn_member_id": m.espn_member_id,
             "display_name": m.display_name,
+            "avatar_url": m.avatar_url,
             "is_active": m.is_active,
         }
         for m in managers_query

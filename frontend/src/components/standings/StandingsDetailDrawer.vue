@@ -2,14 +2,7 @@
 import { computed } from 'vue';
 import type { StandingEntry } from '@/types/api';
 import SwipeDrawer from '@/components/ui/SwipeDrawer.vue';
-import {
-  Sparkles,
-  ShieldAlert,
-  Percent,
-  DollarSign,
-  TrendingUp,
-  Activity,
-} from 'lucide-vue-next';
+import TeamAvatar from '@/components/ui/TeamAvatar.vue';
 
 const props = defineProps<{
   modelValue: boolean;
@@ -28,10 +21,9 @@ const managerSubtitle = computed(() => {
   if (props.standing.co_manager_name) {
     return `${props.standing.manager_name} & ${props.standing.co_manager_name} · ${props.seasonYear}`;
   }
-  return `${props.standing.manager_name} · Season ${props.seasonYear}`;
+  return `${props.standing.manager_name} · ${props.seasonYear}`;
 });
 
-// Official Record & Games
 const totalGames = computed(() => {
   if (!props.standing) return 0;
   return props.standing.wins + props.standing.losses + props.standing.ties;
@@ -58,7 +50,6 @@ const pointsPerGame = computed(() => {
   return props.standing.points_for / totalGames.value;
 });
 
-// All-Play & Luck
 const allPlayPct = computed(() => {
   if (!props.standing) return 0;
   const raw = props.standing.all_play_win_pct;
@@ -71,7 +62,6 @@ const luckPct = computed(() => {
   return Math.abs(raw) <= 1 ? raw * 100 : raw;
 });
 
-// Lineup efficiency
 const efficiencyPct = computed(() => {
   if (!props.standing) return 0;
   const raw = props.standing.lineup_efficiency;
@@ -91,223 +81,176 @@ const benchLostPoints = computed(() => {
     :subtitle="managerSubtitle"
     @update:model-value="emit('update:modelValue', $event)"
   >
-    <div v-if="standing" class="space-y-4 pb-4">
-      <!-- Section 1: Record & Scoring Summary -->
-      <div class="stadium-card rounded-2xl p-4 border border-slate-800 space-y-3">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <Activity class="w-4 h-4 text-emerald-400" />
-            <h4 class="text-xs uppercase font-bold tracking-wider text-slate-300">
-              Official Record & Scoring
-            </h4>
+    <div v-if="standing" class="space-y-3.5 pb-4">
+      <!-- Team & Rank Summary Banner -->
+      <div class="rounded-xl p-3 bg-slate-900/90 border border-slate-800 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3 min-w-0">
+          <TeamAvatar :src="standing.logo_url" :name="standing.team_name" size="md" rounded="xl" />
+          <div class="min-w-0">
+            <h3 class="text-sm sm:text-base font-black text-slate-100 truncate">{{ standing.team_name }}</h3>
+            <p class="text-xs text-slate-400 truncate">{{ managerSubtitle }}</p>
           </div>
+        </div>
 
-          <span
-            v-if="standing.final_standing"
-            class="text-[11px] font-mono px-2 py-0.5 rounded font-bold"
-            :class="
-              standing.final_standing === 1
-                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                : 'bg-slate-800 text-slate-300'
-            "
-          >
-            {{ standing.final_standing === 1 ? '🏆 Champion' : `#${standing.final_standing} Final` }}
+        <div class="flex items-center gap-2 shrink-0 font-mono">
+          <div class="text-right">
+            <div class="text-[10px] uppercase text-slate-500">Standings</div>
+            <div class="text-sm font-black text-amber-400">#{{ standing.rank }}</div>
+          </div>
+          <div class="w-px h-6 bg-slate-800"></div>
+          <div class="text-right">
+            <div class="text-[10px] uppercase text-slate-500">Power Rank</div>
+            <div
+              class="text-sm font-black"
+              :class="standing.power_rank === 1 ? 'text-amber-400' : 'text-slate-100'"
+            >
+              #{{ standing.power_rank }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Weekly Standings Progression Strip -->
+      <div
+        v-if="standing.weekly_history && standing.weekly_history.length > 0"
+        class="rounded-xl p-3 bg-[#0b101b] border border-slate-800/90 space-y-2"
+      >
+        <div class="flex items-center justify-between">
+          <span class="text-[10px] uppercase font-mono font-bold tracking-wider text-slate-400">
+            Weekly Standings Log
           </span>
-          <span
-            v-else-if="standing.playoff_seed"
-            class="text-[11px] font-mono px-2 py-0.5 rounded font-bold bg-emerald-950/80 text-emerald-300 border border-emerald-800/60"
-          >
-            Seed #{{ standing.playoff_seed }}
+          <span class="text-[10px] font-mono text-slate-500">
+            Rank & Weekly Score
           </span>
         </div>
 
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-          <div class="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80">
-            <span class="text-[10px] text-slate-400 uppercase font-semibold">Official Record</span>
+        <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+          <div
+            v-for="pt in standing.weekly_history"
+            :key="pt.week"
+            class="px-2 py-1.5 rounded-lg bg-slate-900/90 border border-slate-800/80 text-center shrink-0 min-w-[54px] font-mono"
+          >
+            <div class="text-[9px] text-slate-500 uppercase">W{{ pt.week }}</div>
+            <div
+              class="text-xs font-black mt-0.5"
+              :class="pt.standings_rank === 1 ? 'text-amber-400' : pt.standings_rank <= 4 ? 'text-emerald-400' : 'text-slate-200'"
+            >
+              #{{ pt.standings_rank }}
+            </div>
+            <div class="text-[9px] text-slate-400 tabular-nums mt-0.5">
+              {{ pt.weekly_score.toFixed(1) }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 1: Record & Scoring Summary -->
+      <div class="rounded-xl p-3.5 bg-[#0b101b] border border-slate-800/90 space-y-2.5">
+        <div class="flex items-center justify-between">
+          <h4 class="text-[10px] uppercase font-mono font-bold tracking-wider text-slate-400">
+            Official Record & Scoring
+          </h4>
+          <span class="text-[11px] font-mono text-slate-400">
+            {{ officialWinPct.toFixed(1) }}% Win Rate
+          </span>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div class="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800/80">
+            <span class="text-[10px] text-slate-500 uppercase font-mono">Record</span>
             <div class="text-base font-bold font-mono text-slate-100 tabular-nums">
               {{ officialRecordStr }}
             </div>
-            <span class="text-[10px] text-slate-500 font-mono">{{ officialWinPct.toFixed(1) }}% W-L</span>
           </div>
 
-          <div class="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80">
-            <span class="text-[10px] text-slate-400 uppercase font-semibold">Points For (PF)</span>
-            <div class="text-base font-bold font-mono text-emerald-400 tabular-nums">
+          <div class="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800/80">
+            <span class="text-[10px] text-slate-500 uppercase font-mono">Points For</span>
+            <div class="text-base font-bold font-mono text-slate-100 tabular-nums">
               {{ standing.points_for.toFixed(1) }}
             </div>
-            <span class="text-[10px] text-slate-500 font-mono">{{ pointsPerGame.toFixed(1) }} PPG</span>
+            <span class="text-[10px] text-slate-500 font-mono">{{ pointsPerGame.toFixed(1) }}/wk</span>
           </div>
 
-          <div class="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80">
-            <span class="text-[10px] text-slate-400 uppercase font-semibold">Points Against (PA)</span>
-            <div class="text-base font-bold font-mono text-rose-400 tabular-nums">
+          <div class="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800/80">
+            <span class="text-[10px] text-slate-500 uppercase font-mono">Points Against</span>
+            <div class="text-base font-bold font-mono text-slate-300 tabular-nums">
               {{ standing.points_against.toFixed(1) }}
             </div>
-            <span class="text-[10px] text-slate-500 font-mono">Opp PPG</span>
           </div>
 
-          <div class="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80">
-            <span class="text-[10px] text-slate-400 uppercase font-semibold">Point Differential</span>
+          <div class="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800/80">
+            <span class="text-[10px] text-slate-500 uppercase font-mono">Differential</span>
             <div
               class="text-base font-bold font-mono tabular-nums"
               :class="pointDiff >= 0 ? 'text-emerald-400' : 'text-rose-400'"
             >
               {{ pointDiff >= 0 ? `+${pointDiff.toFixed(1)}` : pointDiff.toFixed(1) }}
             </div>
-            <span class="text-[10px] text-slate-500 font-mono">Net Margins</span>
           </div>
         </div>
       </div>
 
-      <!-- Section 2: All-Play & Schedule Luck Deep-Dive -->
-      <div class="stadium-card rounded-2xl p-4 border border-slate-800 space-y-3">
+      <!-- Section 2: Power Rankings: Median & All-22 -->
+      <div class="rounded-xl p-3.5 bg-[#0b101b] border border-slate-800/90 space-y-2.5">
         <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <TrendingUp class="w-4 h-4 text-emerald-400" />
-            <h4 class="text-xs uppercase font-bold tracking-wider text-slate-300">
-              All-Play & Schedule Luck
-            </h4>
-          </div>
-
+          <h4 class="text-[10px] uppercase font-mono font-bold tracking-wider text-slate-400">
+            Power Rankings: Median & All-22
+          </h4>
           <span
-            class="text-[11px] font-mono px-2 py-0.5 rounded font-bold border"
+            class="text-[11px] font-mono font-bold"
             :class="
               standing.luck_index > 0.05
-                ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800/80'
+                ? 'text-emerald-400'
                 : standing.luck_index < -0.05
-                ? 'bg-rose-950/80 text-rose-400 border-rose-800/80'
-                : 'bg-slate-800 text-slate-400 border-slate-700'
+                ? 'text-rose-400'
+                : 'text-slate-400'
             "
           >
-            {{ standing.luck_index > 0 ? '+' : '' }}{{ luckPct.toFixed(1) }}% Luck Index
+            {{ standing.luck_index > 0 ? '+' : '' }}{{ luckPct.toFixed(1) }}% Luck
           </span>
         </div>
 
         <div class="grid grid-cols-2 gap-2">
-          <div class="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80">
-            <span class="text-[10px] text-slate-400 uppercase font-semibold">All-Play Record</span>
-            <div class="text-base font-bold font-mono text-slate-100 tabular-nums">
-              {{ standing.all_play_wins }}-{{ standing.all_play_losses }}
-              <span v-if="standing.all_play_ties > 0">-{{ standing.all_play_ties }}</span>
-            </div>
-            <span class="text-[10px] text-slate-400 font-mono">{{ allPlayPct.toFixed(1) }}% true strength</span>
-          </div>
-
-          <div class="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80">
-            <span class="text-[10px] text-slate-400 uppercase font-semibold">Weekly Median Record</span>
+          <div class="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800/80">
+            <span class="text-[10px] text-slate-500 uppercase font-mono">Vs Weekly Median</span>
             <div class="text-base font-bold font-mono text-slate-100 tabular-nums">
               {{ standing.median_wins }}-{{ standing.median_losses }}
               <span v-if="standing.median_ties > 0">-{{ standing.median_ties }}</span>
             </div>
-            <span class="text-[10px] text-slate-400 font-mono">Top half finishes</span>
-          </div>
-        </div>
-
-        <!-- Luck Explanation Note -->
-        <div class="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 text-xs leading-relaxed space-y-1">
-          <div class="flex items-center gap-1.5 font-semibold" :class="standing.luck_index >= 0 ? 'text-emerald-400' : 'text-rose-400'">
-            <Sparkles v-if="standing.luck_index >= 0" class="w-3.5 h-3.5" />
-            <ShieldAlert v-else class="w-3.5 h-3.5" />
-            <span>{{ standing.luck_index >= 0 ? 'Favorable Schedule Impact' : 'Unlucky Matchup Draw' }}</span>
-          </div>
-          <p class="text-slate-400 text-[11px]">
-            {{
-              standing.luck_index >= 0
-                ? `Actual Win Rate (${officialWinPct.toFixed(1)}%) is ${luckPct.toFixed(1)}% higher than league-wide all-play strength (${allPlayPct.toFixed(1)}%). Opponents frequently underperformed during matchups.`
-                : `Actual Win Rate (${officialWinPct.toFixed(1)}%) is ${Math.abs(luckPct).toFixed(1)}% lower than league-wide all-play strength (${allPlayPct.toFixed(1)}%). Faced unusually difficult opponent scoring draws.`
-            }}
-          </p>
-        </div>
-      </div>
-
-      <!-- Section 3: Lineup Optimization & Bench Leftovers -->
-      <div class="stadium-card rounded-2xl p-4 border border-slate-800 space-y-3">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <Percent class="w-4 h-4 text-emerald-400" />
-            <h4 class="text-xs uppercase font-bold tracking-wider text-slate-300">
-              Lineup Optimization & Bench
-            </h4>
+            <span class="text-[10px] text-slate-400 font-mono">Top-half consistency</span>
           </div>
 
-          <span class="text-[11px] font-mono px-2 py-0.5 rounded font-bold bg-slate-800 text-slate-300">
-            {{ efficiencyPct.toFixed(1) }}% Efficient
-          </span>
-        </div>
-
-        <!-- Efficiency Visual Bar -->
-        <div class="space-y-1">
-          <div class="flex items-center justify-between text-[11px] font-mono text-slate-400">
-            <span>Started Points: {{ standing.points_for.toFixed(1) }}</span>
-            <span>Max Optimal: {{ standing.optimal_points_for.toFixed(1) }}</span>
-          </div>
-          <div class="w-full h-2 rounded-full bg-slate-800 overflow-hidden flex">
-            <div
-              class="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full"
-              :style="{ width: `${Math.min(100, Math.max(0, efficiencyPct))}%` }"
-            ></div>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-2 gap-2 pt-1">
-          <div class="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80">
-            <span class="text-[10px] text-slate-400 uppercase font-semibold">Total Bench Points</span>
-            <div class="text-base font-bold font-mono text-slate-200 tabular-nums">
-              {{ standing.bench_points.toFixed(1) }}
+          <div class="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800/80">
+            <span class="text-[10px] text-slate-500 uppercase font-mono">All-22 Record</span>
+            <div class="text-base font-bold font-mono text-slate-100 tabular-nums">
+              {{ standing.all_play_wins }}-{{ standing.all_play_losses }}
+              <span v-if="standing.all_play_ties > 0">-{{ standing.all_play_ties }}</span>
             </div>
-            <span class="text-[10px] text-slate-500 font-mono">Benched production</span>
-          </div>
-
-          <div class="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80">
-            <span class="text-[10px] text-slate-400 uppercase font-semibold">Sub-Optimal Points Lost</span>
-            <div class="text-base font-bold font-mono text-rose-400 tabular-nums">
-              {{ benchLostPoints.toFixed(1) }}
-            </div>
-            <span class="text-[10px] text-slate-500 font-mono">Wrong start/sits</span>
+            <span class="text-[10px] text-slate-400 font-mono">{{ allPlayPct.toFixed(1) }}% win rate</span>
           </div>
         </div>
       </div>
 
-      <!-- Section 4: Financial Prize Ledger & FAAB Budget -->
-      <div class="stadium-card rounded-2xl p-4 border border-slate-800 space-y-3">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <DollarSign class="w-4 h-4 text-emerald-400" />
-            <h4 class="text-xs uppercase font-bold tracking-wider text-slate-300">
-              Season Bankroll & FAAB
-            </h4>
+      <!-- Section 3: Lineup Efficiency & Bankroll -->
+      <div class="grid grid-cols-2 gap-2.5">
+        <div class="rounded-xl p-3 bg-[#0b101b] border border-slate-800/90 space-y-1">
+          <span class="text-[10px] uppercase font-mono font-bold text-slate-400">Lineup Efficiency</span>
+          <div class="text-base font-bold font-mono text-slate-100 tabular-nums">
+            {{ efficiencyPct.toFixed(1) }}%
           </div>
-
-          <span
-            class="text-[11px] font-mono px-2 py-0.5 rounded font-bold bg-emerald-950/80 text-emerald-400 border border-emerald-800/60"
-          >
-            Total ${{ standing.total_earnings.toFixed(2) }}
-          </span>
+          <div class="text-[10px] font-mono text-slate-500">
+            {{ benchLostPoints.toFixed(1) }} pts left on bench
+          </div>
         </div>
 
-        <div class="grid grid-cols-3 gap-2">
-          <div class="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80">
-            <span class="text-[10px] text-slate-400 uppercase font-semibold">Weekly Wins</span>
-            <div class="text-sm sm:text-base font-bold font-mono text-emerald-400 tabular-nums">
-              ${{ standing.weekly_earnings.toFixed(2) }}
-            </div>
-            <span class="text-[10px] text-slate-500 font-mono">High scores</span>
+        <div class="rounded-xl p-3 bg-[#0b101b] border border-slate-800/90 space-y-1">
+          <span class="text-[10px] uppercase font-mono font-bold text-slate-400">Cash & FAAB</span>
+          <div class="text-base font-bold font-mono text-emerald-400 tabular-nums">
+            ${{ standing.total_earnings.toFixed(0) }}
+            <span class="text-xs text-slate-400 font-normal">won</span>
           </div>
-
-          <div class="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80">
-            <span class="text-[10px] text-slate-400 uppercase font-semibold">Podium Cash</span>
-            <div class="text-sm sm:text-base font-bold font-mono text-amber-400 tabular-nums">
-              ${{ standing.podium_earnings.toFixed(2) }}
-            </div>
-            <span class="text-[10px] text-slate-500 font-mono">1st / 2nd / 3rd</span>
-          </div>
-
-          <div class="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80">
-            <span class="text-[10px] text-slate-400 uppercase font-semibold">FAAB Remaining</span>
-            <div class="text-sm sm:text-base font-bold font-mono text-slate-200 tabular-nums">
-              ${{ standing.faab_remaining }}
-            </div>
-            <span class="text-[10px] text-slate-500 font-mono">Waiver budget</span>
+          <div class="text-[10px] font-mono text-slate-500">
+            ${{ standing.faab_remaining }} FAAB remaining
           </div>
         </div>
       </div>

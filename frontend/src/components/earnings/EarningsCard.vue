@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { EarningsLeaderboardEntry } from '@/types/api';
+import TeamAvatar from '@/components/ui/TeamAvatar.vue';
 import { Trophy, Medal, ChevronRight } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -55,7 +56,7 @@ const totalTrophies = computed(() => {
       <div class="flex items-center gap-2.5 min-w-0">
         <!-- Rank Pill -->
         <div
-          class="w-8 h-8 rounded-xl flex items-center justify-center font-black font-mono text-xs shrink-0 shadow-inner"
+          class="w-7 h-7 rounded-xl flex items-center justify-center font-black font-mono text-xs shrink-0 shadow-inner"
           :class="[
             rank === 1
               ? 'bg-amber-500 text-slate-950 shadow-amber-500/50'
@@ -69,11 +70,14 @@ const totalTrophies = computed(() => {
           {{ rank }}
         </div>
 
-        <!-- Manager Name & Seasons / Trophies -->
+        <!-- ESPN Team Avatar -->
+        <TeamAvatar :src="entry.avatar_url" :name="entry.team_name" size="md" rounded="xl" />
+
+        <!-- Team Name (First Title) & Manager Actual Name Underneath -->
         <div class="min-w-0">
           <div class="flex items-center gap-1.5 flex-wrap">
             <h3 class="text-sm sm:text-base font-bold text-slate-100 truncate tracking-tight">
-              {{ entry.display_name }}
+              {{ entry.team_name }}
             </h3>
 
             <!-- Championship badge -->
@@ -108,6 +112,8 @@ const totalTrophies = computed(() => {
           </div>
 
           <p class="text-xs text-slate-400 truncate mt-0.5 flex items-center gap-1.5">
+            <span class="text-slate-300 font-medium">{{ entry.display_name }}</span>
+            <span class="text-slate-600">•</span>
             <span>{{ entry.seasons_played }} {{ entry.seasons_played === 1 ? 'Season' : 'Seasons' }}</span>
             <span v-if="totalTrophies > 0" class="text-slate-600">•</span>
             <span v-if="totalTrophies > 0" class="text-slate-400">{{ totalTrophies }} Total Podiums</span>

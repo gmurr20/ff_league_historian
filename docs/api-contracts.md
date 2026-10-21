@@ -31,6 +31,7 @@ export interface ManagerMeta {
   id: number;
   espn_member_id: string;
   display_name: string;
+  avatar_url: string | null;
   is_active: boolean;
 }
 
@@ -54,14 +55,28 @@ export interface MetaResponse {
 
 export type TrophyType = "CHAMPION" | "RUNNER_UP" | "THIRD_PLACE" | null;
 
+export interface ManagerBountyReceipt {
+  week: number;
+  entry_type: string;
+  amount: number;
+  points: number;
+  description: string;
+}
+
 export interface ManagerSeasonBreakdown {
   season_year: number;
   team_name: string;
+  logo_url: string | null;
   weekly_earnings: number;
   podium_earnings: number;
   total_earnings: number;
   weekly_wins: number;
   weekly_ties: number;
+  weekly_wins_cash: number;
+  weekly_bonus_cash: number;
+  weekly_high_scores: number;
+  weekly_high_score_losses: number;
+  bounty_receipts: ManagerBountyReceipt[];
   final_standing: number | null;
   trophy: TrophyType;
 }
@@ -69,11 +84,18 @@ export interface ManagerSeasonBreakdown {
 export interface EarningsLeaderboardEntry {
   manager_id: number;
   display_name: string;
+  team_name: string;
+  avatar_url: string | null;
   total_earnings: number;
   weekly_earnings: number;
   podium_earnings: number;
   weekly_wins_count: number;
   weekly_ties_count: number;
+  weekly_wins_cash: number;
+  weekly_bonus_cash: number;
+  weekly_high_scores_count: number;
+  weekly_high_score_losses_count: number;
+  bounty_receipts: ManagerBountyReceipt[];
   championships: number;
   runner_ups: number;
   third_places: number;
@@ -81,20 +103,55 @@ export interface EarningsLeaderboardEntry {
   season_breakdown: ManagerSeasonBreakdown[];
 }
 
+export interface WeeklyNuancedPayoutEntry {
+  week: number;
+  high_score_team_name: string;
+  high_score_manager_name: string;
+  high_score_avatar_url: string | null;
+  high_score_points: number;
+  high_score_amount: number;
+  high_score_is_tie: boolean;
+  high_loser_team_name: string;
+  high_loser_manager_name: string;
+  high_loser_avatar_url: string | null;
+  high_loser_points: number;
+  high_loser_amount: number;
+  high_loser_is_tie: boolean;
+}
+
 export interface EarningsLeaderboardResponse {
   season_filter: number | null;
   weekly_win_value: number;
   leaderboard: EarningsLeaderboardEntry[];
+  weekly_nuanced_payouts: WeeklyNuancedPayoutEntry[];
 }
 
 // ==========================================
 // 3. Standings & Performance
 // ==========================================
 
+export interface WeeklyStandingPoint {
+  week: number;
+  standings_rank: number;
+  power_rank: number;
+  wins: number;
+  losses: number;
+  ties: number;
+  points_for: number;
+  weekly_score: number;
+  all_play_wins: number;
+  all_play_losses: number;
+  all_play_ties: number;
+  all_play_win_pct: number;
+}
+
 export interface StandingEntry {
   rank: number;
+  power_rank: number;
   team_id: number;
   team_name: string;
+  team_abbrev: string | null;
+  logo_url: string | null;
   manager_id: number;
   manager_name: string;
   co_manager_name: string | null;
@@ -122,6 +179,7 @@ export interface StandingEntry {
   podium_earnings: number;
   total_earnings: number;
   faab_remaining: number;
+  weekly_history: WeeklyStandingPoint[];
 }
 
 export interface StandingsResponse {
@@ -129,6 +187,8 @@ export interface StandingsResponse {
   is_active: boolean;
   is_completed: boolean;
   current_week: number;
+  regular_season_weeks: number;
+  playoff_team_count: number;
   standings: StandingEntry[];
 }
 
@@ -139,6 +199,8 @@ export interface StandingsResponse {
 export interface H2HManagerRef {
   manager_id: number;
   display_name: string;
+  team_name: string;
+  avatar_url: string | null;
 }
 
 export interface H2HMatrixEntry {
@@ -192,6 +254,8 @@ export interface H2HMatchupGame {
   matchup_type: string;
   manager_a_team_name: string;
   manager_b_team_name: string;
+  manager_a_logo_url: string | null;
+  manager_b_logo_url: string | null;
   manager_a_score: number;
   manager_b_score: number;
   winner_manager_id: number | null;
@@ -232,6 +296,7 @@ export interface TradePlayerAsset {
 export interface TradeSide {
   team_id: number;
   team_name: string;
+  logo_url: string | null;
   manager_id: number;
   manager_name: string;
   assets_received: TradePlayerAsset[];
@@ -253,14 +318,20 @@ export interface TradeDetail {
 export interface TopTradePartner {
   manager_a_id: number;
   manager_a_name: string;
+  manager_a_team_name: string;
+  manager_a_avatar_url: string | null;
   manager_b_id: number;
   manager_b_name: string;
+  manager_b_team_name: string;
+  manager_b_avatar_url: string | null;
   trade_count: number;
 }
 
 export interface ActiveTrader {
   manager_id: number;
   display_name: string;
+  team_name: string;
+  avatar_url: string | null;
   total_trades: number;
   players_acquired: number;
   players_traded_away: number;
@@ -283,6 +354,7 @@ export interface ManagerEfficiency {
   manager_id: number;
   display_name: string;
   team_name: string;
+  logo_url: string | null;
   faab_budget: number;
   faab_spent: number;
   faab_remaining: number;
@@ -311,6 +383,7 @@ export interface TransactionPlayerRef {
 export interface WinningBidder {
   team_id: number;
   team_name: string;
+  logo_url: string | null;
   manager_id: number;
   manager_name: string;
   bid_amount: number;
@@ -321,6 +394,7 @@ export interface LosingBid {
   transaction_id: number;
   team_id: number;
   team_name: string;
+  logo_url: string | null;
   manager_id: number;
   manager_name: string;
   bid_amount: number;
@@ -357,6 +431,7 @@ export interface TransactionAuditItem {
   status: "EXECUTED" | "FAILED" | "CANCELED" | "VETOED";
   team_id: number | null;
   team_name: string | null;
+  logo_url: string | null;
   manager_id: number | null;
   manager_name: string | null;
   bid_amount: number | null;

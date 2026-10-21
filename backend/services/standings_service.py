@@ -46,6 +46,8 @@ def get_standings(session: Session, season_year: int | None = None) -> dict[str,
             "is_active": season.is_active,
             "is_completed": season.is_completed,
             "current_week": season.current_week,
+            "regular_season_weeks": season.regular_season_weeks,
+            "playoff_team_count": season.playoff_team_count,
             "standings": [],
         }
 
@@ -93,47 +95,69 @@ def get_standings(session: Session, season_year: int | None = None) -> dict[str,
     optimal_pts_for: dict[int, float] = defaultdict(float)
     bench_pts_for: dict[int, float] = defaultdict(float)
 
-    for week, week_matches in matchups_by_week.items():
-        # Map team_id -> (actual_score, optimal_score, bench_points)
+    # Cumulative weekly tracking for trajectory / bump chart
+    cum_wins: dict[int, int] = defaultdict(int)
+    cum_losses: dict[int, int] = defaultdict(int)
+    cum_ties: dict[int, int] = defaultdict(int)
+    cum_pf: dict[int, float] = defaultdict(float)
+    weekly_history_by_team: dict[int, list[dict[str, Any]]] = defaultdict(list)
+
+    for week in sorted(matchups_by_week.keys()):
+        week_matches = matchups_by_week[week]
+        # Map team_id -> actual_score for this week
         week_team_scores: dict[int, float] = {}
 
         for m in week_matches:
             # Home team
+            h_id = m.home_team_id
             h_score = float(m.home_score)
             h_opt = (
                 float(m.home_optimal_score)
                 if m.home_optimal_score is not None
                 else (
-                    h_score + lineup_pts_by_team_week.get((m.home_team_id, week), {}).get("bench", 0.0)
+                    h_score + lineup_pts_by_team_week.get((h_id, week), {}).get("bench", 0.0)
                 )
             )
             h_bench = (
                 float(m.home_bench_points)
                 if m.home_bench_points is not None
-                else lineup_pts_by_team_week.get((m.home_team_id, week), {}).get("bench", 0.0)
+                else lineup_pts_by_team_week.get((h_id, week), {}).get("bench", 0.0)
             )
-            week_team_scores[m.home_team_id] = h_score
-            optimal_pts_for[m.home_team_id] += h_opt
-            bench_pts_for[m.home_team_id] += h_bench
+            week_team_scores[h_id] = h_score
+            optimal_pts_for[h_id] += h_opt
+            bench_pts_for[h_id] += h_bench
+            cum_pf[h_id] += h_score
 
             # Away team
             if m.away_team_id is not None:
+                a_id = m.away_team_id
                 a_score = float(m.away_score)
                 a_opt = (
                     float(m.away_optimal_score)
                     if m.away_optimal_score is not None
                     else (
-                        a_score + lineup_pts_by_team_week.get((m.away_team_id, week), {}).get("bench", 0.0)
+                        a_score + lineup_pts_by_team_week.get((a_id, week), {}).get("bench", 0.0)
                     )
                 )
                 a_bench = (
                     float(m.away_bench_points)
                     if m.away_bench_points is not None
-                    else lineup_pts_by_team_week.get((m.away_team_id, week), {}).get("bench", 0.0)
+                    else lineup_pts_by_team_week.get((a_id, week), {}).get("bench", 0.0)
                 )
-                week_team_scores[m.away_team_id] = a_score
-                optimal_pts_for[m.away_team_id] += a_opt
-                bench_pts_for[m.away_team_id] += a_bench
+                week_team_scores[a_id] = a_score
+                optimal_pts_for[a_id] += a_opt
+                bench_pts_for[a_id] += a_bench
+                cum_pf[a_id] += a_score
+
+                if m.is_tie or (m.winner_team_id is None and h_score == a_score):
+                    cum_ties[h_id] += 1
+                    cum_ties[a_id] += 1
+                elif m.winner_team_id == h_id or (m.winner_team_id is None and h_score > a_score):
+                    cum_wins[h_id] += 1
+                    cum_losses[a_id] += 1
+                else:
+                    cum_wins[a_id] += 1
+                    cum_losses[h_id] += 1
 
         if not week_team_scores:
             continue
@@ -163,6 +187,64 @@ def get_standings(session: Session, season_year: int | None = None) -> dict[str,
                 else:
                     all_play_ties[tid_a] += 1
 
+        # Compute week-end standings_rank and power_rank across all teams
+        week_standings_order = sorted(
+            teams,
+            key=lambda t: (
+                -(
+                    (cum_wins[t.id] + 0.5 * cum_ties[t.id])
+                    / max(1, cum_wins[t.id] + cum_losses[t.id] + cum_ties[t.id])
+                ),
+                -cum_wins[t.id],
+                -cum_ties[t.id],
+                -cum_pf[t.id],
+                t.espn_team_id,
+            ),
+        )
+        week_standings_rank_map = {
+            t.id: idx for idx, t in enumerate(week_standings_order, start=1)
+        }
+
+        # Compute week-end power_rank based on Median record with All-Play as tiebreaker
+        def _week_power_sort_key(t: Team) -> tuple[float, float, float, int]:
+            tid = t.id
+            m_tot = median_wins[tid] + median_losses[tid] + median_ties[tid]
+            m_pct = (median_wins[tid] + 0.5 * median_ties[tid]) / m_tot if m_tot > 0 else 0.0
+
+            ap_tot = all_play_wins[tid] + all_play_losses[tid] + all_play_ties[tid]
+            ap_pct = (all_play_wins[tid] + 0.5 * all_play_ties[tid]) / ap_tot if ap_tot > 0 else 0.0
+
+            return (-m_pct, -ap_pct, -cum_pf[tid], t.espn_team_id)
+
+        week_power_order = sorted(teams, key=_week_power_sort_key)
+        week_power_rank_map = {
+            t.id: idx for idx, t in enumerate(week_power_order, start=1)
+        }
+
+        for t in teams:
+            tid = t.id
+            ap_w = all_play_wins[tid]
+            ap_l = all_play_losses[tid]
+            ap_t = all_play_ties[tid]
+            ap_tot = ap_w + ap_l + ap_t
+            ap_pct = round((ap_w + 0.5 * ap_t) / ap_tot, 3) if ap_tot > 0 else 0.0
+            weekly_history_by_team[tid].append(
+                {
+                    "week": week,
+                    "standings_rank": week_standings_rank_map[tid],
+                    "power_rank": week_power_rank_map[tid],
+                    "wins": cum_wins[tid],
+                    "losses": cum_losses[tid],
+                    "ties": cum_ties[tid],
+                    "points_for": round(cum_pf[tid], 2),
+                    "weekly_score": round(week_team_scores.get(tid, 0.0), 2),
+                    "all_play_wins": ap_w,
+                    "all_play_losses": ap_l,
+                    "all_play_ties": ap_t,
+                    "all_play_win_pct": ap_pct,
+                }
+            )
+
     # Fetch financial earnings from earnings ledger for this season
     earnings_entries = (
         session.query(EarningsLedger)
@@ -173,20 +255,41 @@ def get_standings(session: Session, season_year: int | None = None) -> dict[str,
     podium_earnings_by_team: dict[int, float] = defaultdict(float)
     for e in earnings_entries:
         amt = float(e.amount)
-        if e.entry_type in ("WEEKLY_WIN", "WEEKLY_TIE"):
+        if e.entry_type in (
+            "WEEKLY_WIN",
+            "WEEKLY_TIE",
+            "WEEKLY_HIGH_SCORE",
+            "WEEKLY_HIGH_SCORE_LOSS",
+        ):
             weekly_earnings_by_team[e.team_id] += amt
         elif e.entry_type in ("CHAMPION", "RUNNER_UP", "THIRD_PLACE"):
             podium_earnings_by_team[e.team_id] += amt
 
-    # Rank sorting
-    # Prioritize official final_standing if season completed, otherwise playoff seed or wins/PF
-    if all(t.final_standing is not None for t in teams):
+    # Overall Power Rank calculation based on Median record with All-Play tiebreaker
+    def _season_power_sort_key(t: Team) -> tuple[float, float, float, int]:
+        tid = t.id
+        m_tot = median_wins[tid] + median_losses[tid] + median_ties[tid]
+        m_pct = (median_wins[tid] + 0.5 * median_ties[tid]) / m_tot if m_tot > 0 else 0.0
+
+        ap_tot = all_play_wins[tid] + all_play_losses[tid] + all_play_ties[tid]
+        ap_pct = (all_play_wins[tid] + 0.5 * all_play_ties[tid]) / ap_tot if ap_tot > 0 else 0.0
+
+        return (-m_pct, -ap_pct, -float(t.points_for), t.espn_team_id)
+
+    power_sorted_teams = sorted(teams, key=_season_power_sort_key)
+    power_rank_map = {t.id: idx for idx, t in enumerate(power_sorted_teams, start=1)}
+
+    # Official Standings Rank sorting
+    # Prioritize official final_standing (> 0) if season completed, otherwise playoff seed (> 0) or wins/PF
+    if season.is_completed and all(
+        t.final_standing is not None and t.final_standing > 0 for t in teams
+    ):
         sorted_teams = sorted(teams, key=lambda t: t.final_standing or 999)
-    elif any(t.playoff_seed is not None for t in teams):
+    elif any(t.playoff_seed is not None and t.playoff_seed > 0 for t in teams):
         sorted_teams = sorted(
             teams,
             key=lambda t: (
-                t.playoff_seed if t.playoff_seed is not None else 999,
+                t.playoff_seed if (t.playoff_seed is not None and t.playoff_seed > 0) else 999,
                 -float(t.wins),
                 -float(t.points_for),
             ),
@@ -229,11 +332,25 @@ def get_standings(session: Session, season_year: int | None = None) -> dict[str,
         p_earn = round(podium_earnings_by_team[tid], 2)
         tot_earn = round(w_earn + p_earn, 2)
 
+        normalized_seed = (
+            team.playoff_seed
+            if (team.playoff_seed is not None and team.playoff_seed > 0)
+            else None
+        )
+        normalized_final = (
+            team.final_standing
+            if (team.final_standing is not None and team.final_standing > 0)
+            else None
+        )
+
         standings.append(
             {
                 "rank": rank_idx,
+                "power_rank": power_rank_map[tid],
                 "team_id": team.id,
                 "team_name": team.team_name,
+                "team_abbrev": team.team_abbrev,
+                "logo_url": team.logo_url or (team.manager.avatar_url if team.manager else None),
                 "manager_id": team.manager_id,
                 "manager_name": team.manager.display_name if team.manager else "",
                 "co_manager_name": (
@@ -246,8 +363,8 @@ def get_standings(session: Session, season_year: int | None = None) -> dict[str,
                 "points_against": round(float(team.points_against), 2),
                 "streak_type": team.streak_type,
                 "streak_length": team.streak_length,
-                "playoff_seed": team.playoff_seed,
-                "final_standing": team.final_standing,
+                "playoff_seed": normalized_seed,
+                "final_standing": normalized_final,
                 "all_play_wins": ap_w,
                 "all_play_losses": ap_l,
                 "all_play_ties": ap_t,
@@ -263,6 +380,7 @@ def get_standings(session: Session, season_year: int | None = None) -> dict[str,
                 "podium_earnings": p_earn,
                 "total_earnings": tot_earn,
                 "faab_remaining": team.faab_remaining,
+                "weekly_history": weekly_history_by_team[tid],
             }
         )
 
@@ -271,5 +389,7 @@ def get_standings(session: Session, season_year: int | None = None) -> dict[str,
         "is_active": season.is_active,
         "is_completed": season.is_completed,
         "current_week": season.current_week,
+        "regular_season_weeks": season.regular_season_weeks,
+        "playoff_team_count": season.playoff_team_count,
         "standings": standings,
     }

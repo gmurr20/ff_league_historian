@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import type { TradeDetail } from '@/types/api';
 import SwipeDrawer from '@/components/ui/SwipeDrawer.vue';
+import TeamAvatar from '@/components/ui/TeamAvatar.vue';
 import { Trophy, Calendar, Scale, Hash, ArrowLeftRight, Clock } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -104,10 +105,10 @@ const winnerSide = computed(() => {
           <div v-if="winnerSide" class="space-y-1">
             <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm">
               <Trophy class="w-4 h-4 text-amber-400" />
-              <span>Verdict: {{ winnerSide.manager_name }} Won (+{{ trade.point_differential.toFixed(1) }} pts)</span>
+              <span>Verdict: {{ winnerSide.team_name || winnerSide.manager_name }} Won (+{{ trade.point_differential.toFixed(1) }} pts)</span>
             </div>
             <p class="text-xs text-slate-400">
-              {{ winnerSide.manager_name }} realized {{ trade.point_differential.toFixed(1) }} more points from starters acquired than the opposing side.
+              {{ winnerSide.team_name || winnerSide.manager_name }} ({{ winnerSide.manager_name }}) realized {{ trade.point_differential.toFixed(1) }} more points from starters acquired than the opposing side.
             </p>
           </div>
           <div v-else class="space-y-1">
@@ -125,10 +126,10 @@ const winnerSide = computed(() => {
         <div v-if="sideA && sideB" class="space-y-1.5 pt-1">
           <div class="flex items-center justify-between text-xs font-mono font-bold">
             <span :class="sideA.manager_id === trade.winner_manager_id ? 'text-emerald-400' : 'text-slate-300'">
-              {{ sideA.manager_name }}: {{ sideA.total_starter_points_gained.toFixed(1) }} pts
+              {{ sideA.team_name || sideA.manager_name }}: {{ sideA.total_starter_points_gained.toFixed(1) }} pts
             </span>
             <span :class="sideB.manager_id === trade.winner_manager_id ? 'text-emerald-400' : 'text-slate-300'">
-              {{ sideB.total_starter_points_gained.toFixed(1) }} pts: {{ sideB.manager_name }}
+              {{ sideB.total_starter_points_gained.toFixed(1) }} pts: {{ sideB.team_name || sideB.manager_name }}
             </span>
           </div>
 
@@ -157,17 +158,24 @@ const winnerSide = computed(() => {
         >
           <!-- Side Header -->
           <div class="flex items-center justify-between border-b border-slate-800/80 pb-2">
-            <div>
-              <div class="flex items-center gap-2">
-                <span class="font-bold text-sm text-slate-100">{{ side.manager_name }}</span>
-                <span
-                  v-if="side.manager_id === trade.winner_manager_id"
-                  class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                >
-                  Trade Winner
-                </span>
+            <div class="flex items-center gap-2.5 min-w-0">
+              <TeamAvatar
+                :src="side.logo_url"
+                :name="side.team_name || side.manager_name"
+                size="md"
+              />
+              <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class="font-bold text-sm text-slate-100 truncate">{{ side.team_name }}</span>
+                  <span
+                    v-if="side.manager_id === trade.winner_manager_id"
+                    class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                  >
+                    Trade Winner
+                  </span>
+                </div>
+                <div class="text-xs text-slate-400 truncate">{{ side.manager_name }}</div>
               </div>
-              <div class="text-xs text-slate-400">{{ side.team_name }}</div>
             </div>
 
             <div class="text-right">

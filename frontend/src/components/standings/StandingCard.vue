@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { StandingEntry } from '@/types/api';
+import TeamAvatar from '@/components/ui/TeamAvatar.vue';
 import { Trophy, Medal, ChevronRight, Flame, DollarSign, Wallet } from 'lucide-vue-next';
 
 const props = defineProps<{
@@ -175,7 +176,7 @@ const managerSubtitle = computed(() => {
       <div class="flex items-center gap-2.5 min-w-0">
         <!-- Rank Pill -->
         <div
-          class="w-8 h-8 rounded-xl flex items-center justify-center font-black font-mono text-xs shrink-0 shadow-inner"
+          class="w-7 h-7 rounded-xl flex items-center justify-center font-black font-mono text-xs shrink-0 shadow-inner"
           :class="[
             displayRank === 1
               ? 'bg-amber-500 text-slate-950 shadow-amber-500/50'
@@ -188,6 +189,9 @@ const managerSubtitle = computed(() => {
         >
           {{ displayRank }}
         </div>
+
+        <!-- ESPN Team Avatar -->
+        <TeamAvatar :src="standing.logo_url" :name="standing.team_name" size="md" rounded="xl" />
 
         <!-- Team Name & Manager Info -->
         <div class="min-w-0">

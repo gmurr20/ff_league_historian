@@ -35,11 +35,26 @@ def get_trades_trends(
         has_transaction_data = any(s.has_transaction_data for s in seasons) if seasons else True
 
     # Pre-fetch master records
-    teams = session.query(Team).all()
+    teams = session.query(Team).order_by(Team.season_year.desc(), Team.id.desc()).all()
     team_map = {t.id: t for t in teams}
+    latest_team_by_mgr: dict[int, Team] = {}
+    for t in teams:
+        if t.manager_id not in latest_team_by_mgr:
+            latest_team_by_mgr[t.manager_id] = t
 
     managers = session.query(Manager).all()
     mgr_map = {m.id: m.display_name for m in managers}
+    mgr_avatar_map = {m.id: m.avatar_url for m in managers}
+
+    def _mgr_team_name(mid: int) -> str:
+        if mid in latest_team_by_mgr:
+            return latest_team_by_mgr[mid].team_name
+        return mgr_map.get(mid, "")
+
+    def _mgr_avatar(mid: int) -> str | None:
+        if mid in latest_team_by_mgr and latest_team_by_mgr[mid].logo_url:
+            return latest_team_by_mgr[mid].logo_url
+        return mgr_avatar_map.get(mid)
 
     # Query completed trades
     trades_query = session.query(Trade).filter(Trade.status == "EXECUTED")
@@ -202,6 +217,7 @@ def get_trades_trends(
                     {
                         "team_id": prop_team.id,
                         "team_name": prop_team.team_name,
+                        "logo_url": prop_team.logo_url or mgr_avatar_map.get(prop_mgr_id),
                         "manager_id": prop_mgr_id,
                         "manager_name": mgr_map.get(prop_mgr_id, ""),
                         "assets_received": prop_assets,
@@ -211,6 +227,7 @@ def get_trades_trends(
                     {
                         "team_id": acc_team.id,
                         "team_name": acc_team.team_name,
+                        "logo_url": acc_team.logo_url or mgr_avatar_map.get(acc_mgr_id),
                         "manager_id": acc_mgr_id,
                         "manager_name": mgr_map.get(acc_mgr_id, ""),
                         "assets_received": acc_assets,
@@ -228,8 +245,12 @@ def get_trades_trends(
         {
             "manager_a_id": pair[0],
             "manager_a_name": mgr_map.get(pair[0], ""),
+            "manager_a_team_name": _mgr_team_name(pair[0]),
+            "manager_a_avatar_url": _mgr_avatar(pair[0]),
             "manager_b_id": pair[1],
             "manager_b_name": mgr_map.get(pair[1], ""),
+            "manager_b_team_name": _mgr_team_name(pair[1]),
+            "manager_b_avatar_url": _mgr_avatar(pair[1]),
             "trade_count": count,
         }
         for pair, count in sorted(pair_trade_counts.items(), key=lambda x: -x[1])
@@ -240,6 +261,8 @@ def get_trades_trends(
         {
             "manager_id": mid,
             "display_name": mgr_map.get(mid, ""),
+            "team_name": _mgr_team_name(mid),
+            "avatar_url": _mgr_avatar(mid),
             "total_trades": data["total_trades"],
             "players_acquired": data["players_acquired"],
             "players_traded_away": data["players_traded_away"],

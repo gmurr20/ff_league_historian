@@ -20,6 +20,7 @@ Execution:
 from __future__ import annotations
 
 import sys
+from collections import defaultdict
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -27,6 +28,7 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.database import create_db_engine, init_db
+from backend.jobs.payout_policy import load_season_payout_rules
 from backend.models import (
     EarningsLedger,
     Manager,
@@ -174,6 +176,7 @@ def _seed_seasons(session: Session) -> dict[int, Season]:
         "IR": 1,
     }
 
+    p2022 = load_season_payout_rules(2022)
     s2022 = Season(
         season_year=2022,
         league_id="12345678",
@@ -188,14 +191,20 @@ def _seed_seasons(session: Session) -> dict[int, Season]:
         scoring_settings=default_scoring,
         roster_slots=default_slots,
         faab_budget=100,
-        weekly_win_payout=Decimal("10.00"),
-        champion_payout=Decimal("600.00"),
-        runner_up_payout=Decimal("300.00"),
-        third_place_payout=Decimal("100.00"),
+        weekly_win_payout=p2022["weekly_win_payout"],
+        weekly_high_score_payout=p2022["weekly_high_score_payout"],
+        weekly_high_score_loss_payout=p2022["weekly_high_score_loss_payout"],
+        champion_payout=p2022["champion_payout"],
+        runner_up_payout=p2022["runner_up_payout"],
+        third_place_payout=p2022["third_place_payout"],
+        fourth_place_payout=p2022["fourth_place_payout"],
+        fifth_place_payout=p2022["fifth_place_payout"],
+        regular_season_most_points_payout=p2022["regular_season_most_points_payout"],
         has_transaction_data=False,  # Legacy era without ESPN transaction history
         has_boxscore_data=True,
     )
 
+    p2023 = load_season_payout_rules(2023)
     s2023 = Season(
         season_year=2023,
         league_id="12345678",
@@ -210,14 +219,20 @@ def _seed_seasons(session: Session) -> dict[int, Season]:
         scoring_settings=default_scoring,
         roster_slots=default_slots,
         faab_budget=100,
-        weekly_win_payout=Decimal("10.00"),
-        champion_payout=Decimal("600.00"),
-        runner_up_payout=Decimal("300.00"),
-        third_place_payout=Decimal("100.00"),
+        weekly_win_payout=p2023["weekly_win_payout"],
+        weekly_high_score_payout=p2023["weekly_high_score_payout"],
+        weekly_high_score_loss_payout=p2023["weekly_high_score_loss_payout"],
+        champion_payout=p2023["champion_payout"],
+        runner_up_payout=p2023["runner_up_payout"],
+        third_place_payout=p2023["third_place_payout"],
+        fourth_place_payout=p2023["fourth_place_payout"],
+        fifth_place_payout=p2023["fifth_place_payout"],
+        regular_season_most_points_payout=p2023["regular_season_most_points_payout"],
         has_transaction_data=True,
         has_boxscore_data=True,
     )
 
+    p2024 = load_season_payout_rules(2024)
     s2024 = Season(
         season_year=2024,
         league_id="12345678",
@@ -232,10 +247,15 @@ def _seed_seasons(session: Session) -> dict[int, Season]:
         scoring_settings=default_scoring,
         roster_slots=default_slots,
         faab_budget=100,
-        weekly_win_payout=Decimal("10.00"),
-        champion_payout=Decimal("600.00"),
-        runner_up_payout=Decimal("300.00"),
-        third_place_payout=Decimal("100.00"),
+        weekly_win_payout=p2024["weekly_win_payout"],
+        weekly_high_score_payout=p2024["weekly_high_score_payout"],
+        weekly_high_score_loss_payout=p2024["weekly_high_score_loss_payout"],
+        champion_payout=p2024["champion_payout"],
+        runner_up_payout=p2024["runner_up_payout"],
+        third_place_payout=p2024["third_place_payout"],
+        fourth_place_payout=p2024["fourth_place_payout"],
+        fifth_place_payout=p2024["fifth_place_payout"],
+        regular_season_most_points_payout=p2024["regular_season_most_points_payout"],
         has_transaction_data=True,
         has_boxscore_data=True,
     )
@@ -848,9 +868,97 @@ def _seed_earnings_ledger(
                     )
                 )
 
+    # 2. Weekly high score ($10.00) and weekly high score in a loss ($10.00)
+    matchups_by_year_week: dict[tuple[int, int], list[Matchup]] = defaultdict(list)
+    for m in matchups:
+        if m.matchup_type == "REGULAR":
+            matchups_by_year_week[(m.season_year, m.week)].append(m)
+
+    for (year, week), wk_matchups in matchups_by_year_week.items():
+        # High score of the week
+        team_scores: list[tuple[int, Decimal, int]] = []
+        for m in wk_matchups:
+            h_team = session.get(Team, m.home_team_id)
+            if h_team:
+                team_scores.append((h_team.id, m.home_score, h_team.manager_id))
+            if m.away_team_id:
+                a_team = session.get(Team, m.away_team_id)
+                if a_team:
+                    team_scores.append((a_team.id, m.away_score, a_team.manager_id))
+
+        if team_scores:
+            max_score = max(score for _, score, _ in team_scores)
+            if max_score > Decimal("0.00"):
+                high_score_teams = [
+                    (tid, mid) for tid, score, mid in team_scores if score == max_score
+                ]
+                split_count = len(high_score_teams)
+                hs_amount = (Decimal("10.00") / Decimal(split_count)).quantize(Decimal("0.01"))
+                for tid, mid in high_score_teams:
+                    desc = (
+                        f"Week {week} Regular Season High Score ({max_score:.2f} pts)"
+                        if split_count == 1
+                        else f"Week {week} Regular Season High Score Tie ({max_score:.2f} pts)"
+                    )
+                    ledger_entries.append(
+                        EarningsLedger(
+                            manager_id=mid,
+                            team_id=tid,
+                            season_year=year,
+                            week=week,
+                            entry_type="WEEKLY_HIGH_SCORE",
+                            amount=hs_amount,
+                            description=desc,
+                        )
+                    )
+
+        # High score in a loss
+        losing_scores: list[tuple[int, Decimal, int]] = []
+        for m in wk_matchups:
+            if not m.is_tie and m.winner_team_id:
+                if m.winner_team_id == m.home_team_id and m.away_team_id:
+                    l_team = session.get(Team, m.away_team_id)
+                    if l_team:
+                        losing_scores.append((l_team.id, m.away_score, l_team.manager_id))
+                elif m.winner_team_id == m.away_team_id:
+                    l_team = session.get(Team, m.home_team_id)
+                    if l_team:
+                        losing_scores.append((l_team.id, m.home_score, l_team.manager_id))
+
+        if losing_scores:
+            max_loss_score = max(score for _, score, _ in losing_scores)
+            if max_loss_score > Decimal("0.00"):
+                high_loss_teams = [
+                    (tid, mid) for tid, score, mid in losing_scores if score == max_loss_score
+                ]
+                loss_split_count = len(high_loss_teams)
+                hsl_amount = (Decimal("10.00") / Decimal(loss_split_count)).quantize(
+                    Decimal("0.01")
+                )
+                for tid, mid in high_loss_teams:
+                    desc = (
+                        f"Week {week} Regular Season Most Points in a Loss ({max_loss_score:.2f} pts)"
+                        if loss_split_count == 1
+                        else f"Week {week} Regular Season Most Points in a Loss Tie ({max_loss_score:.2f} pts)"
+                    )
+                    ledger_entries.append(
+                        EarningsLedger(
+                            manager_id=mid,
+                            team_id=tid,
+                            season_year=year,
+                            week=week,
+                            entry_type="WEEKLY_HIGH_SCORE_LOSS",
+                            amount=hsl_amount,
+                            description=desc,
+                        )
+                    )
+
     # 2. Season podium payouts for completed seasons (2022 and 2023)
     # week=None for podium awards
     for year in [2022, 2023]:
+        s = session.query(Season).filter_by(season_year=year).first()
+        if not s:
+            continue
         t1 = teams[(year, 1)]  # 1st place Champion
         t2 = teams[(year, 2)]  # 2nd place Runner Up
         t3 = teams[(year, 3)]  # 3rd place Third Place
@@ -862,7 +970,7 @@ def _seed_earnings_ledger(
                 season_year=year,
                 week=None,
                 entry_type="CHAMPION",
-                amount=Decimal("600.00"),
+                amount=s.champion_payout,
                 description=f"{year} League Champion Payout",
             ),
             EarningsLedger(
@@ -871,7 +979,7 @@ def _seed_earnings_ledger(
                 season_year=year,
                 week=None,
                 entry_type="RUNNER_UP",
-                amount=Decimal("300.00"),
+                amount=s.runner_up_payout,
                 description=f"{year} League Runner-Up Payout",
             ),
             EarningsLedger(
@@ -880,7 +988,7 @@ def _seed_earnings_ledger(
                 season_year=year,
                 week=None,
                 entry_type="THIRD_PLACE",
-                amount=Decimal("100.00"),
+                amount=s.third_place_payout,
                 description=f"{year} 3rd Place Playoff Payout",
             ),
         ])
