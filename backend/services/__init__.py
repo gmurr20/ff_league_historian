@@ -8,7 +8,7 @@ Purpose:
 from __future__ import annotations
 
 from backend.services.earnings_service import get_earnings_leaderboard
-from backend.services.history_service import get_head_to_head
+from backend.services.hall_of_fame_service import get_hall_of_fame
 from backend.services.meta_service import get_health, get_meta
 from backend.services.standings_service import get_standings
 from backend.services.trades_service import get_trades_trends
@@ -19,7 +19,7 @@ __all__ = [
     "get_meta",
     "get_earnings_leaderboard",
     "get_standings",
-    "get_head_to_head",
+    "get_hall_of_fame",
     "get_trades_trends",
     "get_transactions_summary",
 ]

@@ -62,6 +62,7 @@ export interface ManagerSeasonBreakdown {
   logo_url: string | null;
   weekly_earnings: number;
   podium_earnings: number;
+  points_title_cash: number;
   total_earnings: number;
   weekly_wins: number;
   weekly_ties: number;
@@ -84,6 +85,7 @@ export interface EarningsLeaderboardEntry {
   total_earnings: number;
   weekly_earnings: number;
   podium_earnings: number;
+  points_title_cash: number;
   weekly_wins_count: number;
   weekly_ties_count: number;
   weekly_wins_cash: number;
@@ -92,6 +94,8 @@ export interface EarningsLeaderboardEntry {
   weekly_high_score_losses_count: number;
   bounty_receipts: ManagerBountyReceipt[];
   championships: number;
+  championship_years: number[];
+  is_defending_champion: boolean;
   runner_ups: number;
   third_places: number;
   seasons_played: number;
@@ -116,11 +120,24 @@ export interface WeeklyNuancedPayoutEntry {
   high_loser_is_tie: boolean;
 }
 
+export interface RegularSeasonPointsWinner {
+  manager_id: number;
+  manager_name: string;
+  team_id: number;
+  team_name: string;
+  avatar_url: string | null;
+  points: number;
+  amount: number;
+  is_tie: boolean;
+  description: string;
+}
+
 export interface EarningsLeaderboardResponse {
   season_filter: number | null;
   weekly_win_value: number;
   leaderboard: EarningsLeaderboardEntry[];
   weekly_nuanced_payouts: WeeklyNuancedPayoutEntry[];
+  regular_season_points_winner: RegularSeasonPointsWinner | null;
 }
 
 // ==========================================
@@ -152,6 +169,7 @@ export interface StandingEntry {
   manager_id: number;
   manager_name: string;
   co_manager_name: string | null;
+  is_active: boolean;
   wins: number;
   losses: number;
   ties: number;
@@ -176,116 +194,158 @@ export interface StandingEntry {
   podium_earnings: number;
   total_earnings: number;
   faab_remaining: number;
+  championships: number;
+  championship_years: number[];
+  runner_ups: number;
+  runner_up_years: number[];
+  third_places: number;
+  third_place_years: number[];
+  scoring_champs: number;
+  scoring_champ_years: number[];
+  is_defending_champion: boolean;
   weekly_history: WeeklyStandingPoint[];
 }
 
 export type StandingRow = StandingEntry;
 
-export interface StandingsResponse {
+export interface BracketTeamRef {
+  team_id: number;
+  team_name: string;
+  team_abbrev: string | null;
+  logo_url: string | null;
+  manager_id: number;
+  manager_name: string;
+  playoff_seed: number | null;
+  final_standing: number | null;
+}
+
+export interface PlayoffMatchupItem {
+  id: number;
+  week: number;
+  matchup_type: string;
+  round_label: string;
+  home_team: BracketTeamRef;
+  away_team: BracketTeamRef | null;
+  home_score: number;
+  away_score: number;
+  winner_team_id: number | null;
+  is_completed: boolean;
+  is_bye: boolean;
+}
+
+export interface PlayoffRound {
+  week: number;
+  round_label: string;
+  winners_bracket: PlayoffMatchupItem[];
+  consolation: PlayoffMatchupItem[];
+}
+
+export interface PlayoffBracket {
   season_year: number;
+  is_available: boolean;
+  championship_round_week: number;
+  rounds: PlayoffRound[];
+  champion: BracketTeamRef | null;
+  runner_up: BracketTeamRef | null;
+  third_place: BracketTeamRef | null;
+}
+
+export interface StandingsResponse {
+  season_year: number | null;
   is_active: boolean;
   is_completed: boolean;
   current_week: number;
   regular_season_weeks: number;
   playoff_team_count: number;
+  defending_champion_manager_id: number | null;
+  defending_champion_team_id: number | null;
+  playoff_bracket: PlayoffBracket | null;
   standings: StandingEntry[];
 }
 
 // ==========================================
-// 4. Head-to-Head Rivalry
+// 4. Hall of Fame & Legends
 // ==========================================
 
-export interface H2HManagerRef {
-  manager_id: number;
-  display_name: string;
+export interface HallOfFameBanner {
+  season_year: number;
+  team_id: number;
   team_name: string;
+  team_abbrev: string;
+  logo_url: string | null;
+  manager_id: number;
+  manager_name: string;
   avatar_url: string | null;
-}
-
-export interface H2HMatrixEntry {
-  manager_a_id: number;
-  manager_a_name: string;
-  manager_b_id: number;
-  manager_b_name: string;
+  co_manager_id: number | null;
+  co_manager_name: string | null;
   wins: number;
   losses: number;
   ties: number;
-  win_pct: number;
   points_for: number;
   points_against: number;
-  total_games: number;
+  regular_season_finish: string;
+  championship_score: number;
+  runner_up_team_id: number | null;
+  runner_up_team_name: string;
+  runner_up_manager_name: string | null;
+  runner_up_score: number;
+  margin_of_victory: number;
+  total_earnings: number;
+  payout_amount: number;
 }
 
-export type HeadToHeadMatrixCell = H2HMatrixEntry;
-
-export interface H2HRecordSplit {
-  a_wins: number;
-  b_wins: number;
-  ties: number;
-  a_points: number;
-  b_points: number;
-}
-
-export type HeadToHeadSeriesSplit = H2HRecordSplit;
-
-export interface H2HCombinedSplit extends H2HRecordSplit {
-  point_differential: number;
-}
-
-export interface H2HStreak {
-  manager_id: number | null;
-  display_name: string | null;
-  length: number;
-  type: "WIN" | "TIE" | "NONE";
-}
-
-export interface H2HGameHighlight {
-  season_year: number;
+export interface ChampionshipMatchupDetail {
   week: number;
-  matchup_type: string;
-  winner_manager_id: number | null;
-  winner_name: string | null;
-  winner_score: number;
-  loser_score: number;
-  margin: number;
+  matchup_id: number | null;
+  winning_score: number;
+  runner_up_team_id: number | null;
+  runner_up_team_name: string;
+  runner_up_manager_name: string | null;
+  runner_up_logo_url: string | null;
+  runner_up_score: number;
+  margin_of_victory: number;
 }
 
-export type HeadToHeadHighlightGame = H2HGameHighlight;
+export interface HallOfFameHeroPlayer {
+  rank: number;
+  player_id: number;
+  full_name: string;
+  default_position: string;
+  pro_team: string;
+  headshot_url: string | null;
+  slot_position: string;
+  fantasy_points: number;
+  projected_points: number;
+  stats_summary: string;
+  role_title: string;
+  pct_of_team_points: number;
+}
 
-export interface H2HMatchupGame {
-  matchup_id: number;
+export interface FeaturedChampion {
   season_year: number;
-  week: number;
-  matchup_type: string;
-  manager_a_team_name: string;
-  manager_b_team_name: string;
-  manager_a_logo_url: string | null;
-  manager_b_logo_url: string | null;
-  manager_a_score: number;
-  manager_b_score: number;
-  winner_manager_id: number | null;
+  team_id: number;
+  team_name: string;
+  team_abbrev: string;
+  logo_url: string | null;
+  manager_id: number;
+  manager_name: string;
+  avatar_url: string | null;
+  co_manager_id: number | null;
+  co_manager_name: string | null;
+  regular_season_finish: string;
+  hall_of_fame_number: number;
+  record: string;
+  total_earnings: number;
+  championship_matchup: ChampionshipMatchupDetail;
+  top_players: HallOfFameHeroPlayer[];
 }
 
-export type HeadToHeadMatchupItem = H2HMatchupGame;
-
-export interface H2HPairDetail {
-  manager_a: H2HManagerRef;
-  manager_b: H2HManagerRef;
-  regular_season: H2HRecordSplit;
-  playoffs: H2HRecordSplit;
-  combined: H2HCombinedSplit;
-  current_streak: H2HStreak;
-  biggest_blowout: H2HGameHighlight | null;
-  closest_game: H2HGameHighlight | null;
-  matchups: H2HMatchupGame[];
-}
-
-export type HeadToHeadPairDetail = H2HPairDetail;
-
-export interface HeadToHeadResponse {
-  managers: H2HManagerRef[];
-  matrix: H2HMatrixEntry[];
-  pair_detail: H2HPairDetail | null;
+export interface HallOfFameResponse {
+  reigning_champion_year: number;
+  selected_season: number;
+  available_seasons: number[];
+  banners: HallOfFameBanner[];
+  featured_champion: FeaturedChampion | null;
 }
 
 // ==========================================

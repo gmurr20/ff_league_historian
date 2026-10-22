@@ -54,8 +54,10 @@ const sortedLeaderboard = computed(() => {
         );
       case 'podium':
         return (
-          (a.podium_earnings - b.podium_earnings ||
-            a.championships - b.championships) * dir
+          (a.championships - b.championships ||
+            a.runner_ups - b.runner_ups ||
+            a.third_places - b.third_places ||
+            a.podium_earnings - b.podium_earnings) * dir
         );
       case 'seasons':
         return (a.seasons_played - b.seasons_played) * dir;
@@ -72,7 +74,7 @@ const sortedLeaderboard = computed(() => {
     <div class="flex items-center justify-between px-3.5 py-2.5 bg-slate-900/95 border-b border-slate-800/90">
       <div class="flex items-baseline gap-2 min-w-0">
         <h3 class="text-xs sm:text-sm font-black uppercase tracking-tight text-slate-100 truncate">
-          {{ isSingleSeason ? `Season ${seasonYear ?? ''} Earnings Standings` : 'All-Time Career Bankroll Standings' }}
+          {{ isSingleSeason ? 'Earnings Standings' : 'All-Time Bankroll' }}
         </h3>
         <span class="text-[11px] font-mono text-slate-500 uppercase tracking-wider truncate">
           ({{ sortedLeaderboard.length }} Franchises)
@@ -88,7 +90,7 @@ const sortedLeaderboard = computed(() => {
     <!-- COLUMN HEADERS: SINGLE SEASON MODE -->
     <div
       v-if="isSingleSeason"
-      class="grid grid-cols-[28px_1fr_48px_54px_58px] sm:grid-cols-[32px_1fr_64px_72px_72px_76px] items-center px-2.5 sm:px-3.5 py-2 bg-slate-900/90 border-b border-slate-800/90 text-[10px] font-mono uppercase tracking-wider text-slate-400 select-none"
+      class="grid grid-cols-[20px_1fr_46px_44px_52px] sm:grid-cols-[28px_1fr_56px_64px_68px_68px_72px] items-center px-2.5 sm:px-3.5 py-2 bg-slate-900/90 border-b border-slate-800/90 text-[10px] font-mono uppercase tracking-tight sm:tracking-wider text-slate-400 select-none"
     >
       <button
         type="button"
@@ -139,7 +141,7 @@ const sortedLeaderboard = computed(() => {
     <!-- COLUMN HEADERS: ALL-TIME CAREER MODE -->
     <div
       v-else
-      class="grid grid-cols-[28px_1fr_48px_50px_60px] sm:grid-cols-[32px_1fr_56px_68px_72px_72px_76px] items-center px-2.5 sm:px-3.5 py-2 bg-slate-900/90 border-b border-slate-800/90 text-[10px] font-mono uppercase tracking-wider text-slate-400 select-none"
+      class="grid grid-cols-[20px_1fr_44px_56px_60px] sm:grid-cols-[28px_1fr_56px_64px_68px_72px_76px] items-center px-2.5 sm:px-3.5 py-2 bg-slate-900/90 border-b border-slate-800/90 text-[10px] font-mono uppercase tracking-tight sm:tracking-wider text-slate-400 select-none"
     >
       <button
         type="button"
@@ -224,7 +226,7 @@ const sortedLeaderboard = computed(() => {
         <!-- ROW: SINGLE SEASON MODE -->
         <div
           v-if="isSingleSeason"
-          class="grid grid-cols-[28px_1fr_48px_54px_58px] sm:grid-cols-[32px_1fr_64px_72px_72px_76px] items-center px-2.5 sm:px-3.5 py-2.5"
+          class="grid grid-cols-[20px_1fr_46px_44px_52px] sm:grid-cols-[28px_1fr_56px_64px_68px_68px_72px] items-center px-2.5 sm:px-3.5 py-2.5"
         >
           <!-- Rank -->
           <div
@@ -241,18 +243,42 @@ const sortedLeaderboard = computed(() => {
           </div>
 
           <!-- Franchise Cell -->
-          <div class="flex items-center gap-2 min-w-0 pr-2">
+          <div class="flex items-center gap-2 min-w-0 pr-1">
             <TeamAvatar :src="entry.avatar_url" :name="entry.team_name" size="xs" rounded="lg" />
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-1.5 min-w-0">
                 <span class="text-[13px] sm:text-sm font-bold text-slate-100 truncate leading-tight">
                   {{ entry.team_name }}
                 </span>
-                <span
+                <!-- Championship Stars (Soccer / World Cup style: 1 star per title) -->
+                <div
                   v-if="entry.championships > 0"
-                  class="text-[9px] font-mono font-black uppercase px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0"
+                  class="inline-flex items-center gap-0.5 shrink-0"
+                  :title="`${entry.championships}x Champion${entry.championship_years && entry.championship_years.length ? ` (${entry.championship_years.join(', ')})` : ''}`"
                 >
-                  CHAMP
+                  <span
+                    v-for="yr in (entry.championship_years && entry.championship_years.length ? entry.championship_years : entry.championships)"
+                    :key="yr"
+                    class="text-amber-400 text-xs sm:text-sm leading-none drop-shadow-[0_0_5px_rgba(251,191,36,0.6)] select-none"
+                  >
+                    ★
+                  </span>
+                </div>
+                <!-- Special Symbol / Indicator for Previous Champion (Defending Champion) -->
+                <span
+                  v-if="entry.is_defending_champion"
+                  class="inline-flex items-center gap-1 text-[9px] font-mono font-black uppercase px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/35 shrink-0 shadow-sm"
+                  title="Defending Champion"
+                >
+                  <span class="text-[10px]">🏆</span>
+                  <span class="hidden xs:inline">DEFENDING</span> CHAMP
+                </span>
+                <span
+                  v-if="entry.points_title_cash > 0"
+                  class="inline-flex items-center gap-0.5 text-[9px] font-mono font-black uppercase px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 shrink-0"
+                  title="The Lamar Jackson Award · Regular Season Scoring King"
+                >
+                  👑 REG KING
                 </span>
               </div>
               <div class="text-[10px] text-slate-400 leading-tight mt-0.5 truncate">
@@ -305,7 +331,7 @@ const sortedLeaderboard = computed(() => {
         <!-- ROW: ALL-TIME CAREER MODE -->
         <div
           v-else
-          class="grid grid-cols-[28px_1fr_48px_50px_60px] sm:grid-cols-[32px_1fr_56px_68px_72px_72px_76px] items-center px-2.5 sm:px-3.5 py-2.5"
+          class="grid grid-cols-[20px_1fr_44px_56px_60px] sm:grid-cols-[28px_1fr_56px_64px_68px_72px_76px] items-center px-2.5 sm:px-3.5 py-2.5"
         >
           <!-- Rank -->
           <div
@@ -322,16 +348,46 @@ const sortedLeaderboard = computed(() => {
           </div>
 
           <!-- Franchise Cell -->
-          <div class="flex items-center gap-2 min-w-0 pr-2">
+          <div class="flex items-center gap-2 min-w-0 pr-1">
             <TeamAvatar :src="entry.avatar_url" :name="entry.team_name" size="xs" rounded="lg" />
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-1.5 min-w-0">
                 <span class="text-[13px] sm:text-sm font-bold text-slate-100 truncate leading-tight">
-                  {{ entry.display_name }}
+                  {{ entry.team_name || entry.display_name }}
+                </span>
+                <!-- Championship Stars (Soccer / World Cup style: 1 star per title) -->
+                <div
+                  v-if="entry.championships > 0"
+                  class="inline-flex items-center gap-0.5 shrink-0"
+                  :title="`${entry.championships}x Champion${entry.championship_years && entry.championship_years.length ? ` (${entry.championship_years.join(', ')})` : ''}`"
+                >
+                  <span
+                    v-for="yr in (entry.championship_years && entry.championship_years.length ? entry.championship_years : entry.championships)"
+                    :key="yr"
+                    class="text-amber-400 text-xs sm:text-sm leading-none drop-shadow-[0_0_5px_rgba(251,191,36,0.6)] select-none"
+                  >
+                    ★
+                  </span>
+                </div>
+                <!-- Special Symbol / Indicator for Previous Champion (Defending Champion) -->
+                <span
+                  v-if="entry.is_defending_champion"
+                  class="inline-flex items-center gap-1 text-[9px] font-mono font-black uppercase px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/35 shrink-0 shadow-sm"
+                  title="Defending Champion"
+                >
+                  <span class="text-[10px]">🏆</span>
+                  <span class="hidden xs:inline">DEFENDING</span> CHAMP
                 </span>
               </div>
-              <div class="text-[10px] text-slate-400 leading-tight mt-0.5 truncate">
-                {{ entry.team_name }} · {{ entry.seasons_played }} {{ entry.seasons_played === 1 ? 'Season' : 'Seasons' }}
+              <div class="flex items-center gap-1.5 text-[10px] text-slate-400 leading-tight mt-0.5 min-w-0">
+                <span v-if="entry.team_name && entry.team_name !== entry.display_name" class="truncate">{{ entry.display_name }}</span>
+                <span v-if="entry.team_name && entry.team_name !== entry.display_name" class="text-slate-600 shrink-0">·</span>
+                <span
+                  class="text-[9.5px] font-mono text-slate-400 shrink-0 select-none"
+                  :title="`${entry.seasons_played} ${entry.seasons_played === 1 ? 'season' : 'seasons'} in league history`"
+                >
+                  {{ entry.seasons_played }} {{ entry.seasons_played === 1 ? 'season' : 'seasons' }}
+                </span>
               </div>
             </div>
           </div>
@@ -366,23 +422,35 @@ const sortedLeaderboard = computed(() => {
             </span>
           </div>
 
-          <!-- Trophy Case (Titles) -->
-          <div class="text-right font-mono tabular-nums flex items-center justify-end gap-1">
+          <!-- Trophy Case (1st, 2nd, 3rd Titles & Podiums) -->
+          <div class="text-right font-mono tabular-nums flex items-center justify-end gap-1 text-[11px] sm:text-xs">
             <span
               v-if="entry.championships > 0"
-              class="text-[9px] font-mono font-black uppercase tracking-wider px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30"
-              title="Championships"
+              class="font-bold text-amber-400 select-none whitespace-nowrap"
+              :title="`${entry.championships}x Champion (1st Place)`"
             >
-              {{ entry.championships }}x CHAMP
+              🏆{{ entry.championships }}
             </span>
             <span
-              v-else-if="entry.runner_ups > 0"
-              class="text-[9px] font-mono font-black uppercase tracking-wider px-1.5 py-0.2 rounded bg-slate-500/15 text-slate-300 border border-slate-500/30"
-              title="Runner-Ups"
+              v-if="entry.runner_ups > 0"
+              class="font-medium text-slate-300 select-none whitespace-nowrap"
+              :title="`${entry.runner_ups}x Runner-Up (2nd Place)`"
             >
-              {{ entry.runner_ups }}x 2ND
+              🥈{{ entry.runner_ups }}
             </span>
-            <span v-else class="text-slate-600 text-xs">-</span>
+            <span
+              v-if="entry.third_places > 0"
+              class="font-medium text-amber-600 select-none whitespace-nowrap"
+              :title="`${entry.third_places}x 3rd Place`"
+            >
+              🥉{{ entry.third_places }}
+            </span>
+            <span
+              v-if="entry.championships === 0 && entry.runner_ups === 0 && entry.third_places === 0"
+              class="text-slate-600 select-none"
+            >
+              —
+            </span>
           </div>
 
           <!-- Career Total Bankroll (Prominent Emerald) -->

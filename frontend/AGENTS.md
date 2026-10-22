@@ -42,7 +42,7 @@
 - **Navigation:** Bottom navigation bar with 5 primary tabs:
   1. **Standings** (Current & historical records, All-Play, Luck index)
   2. **Earnings** (Financial bankroll, weekly vs. podium breakdown)
-  3. **Head-to-Head** (Career rivalry matrix & Tale of the Tape)
+  3. **Hall of Fame** (Championship banners & Pokémon Elite 4 victory spotlight)
   4. **Trades** (Trade network, realized post-trade starter points)
   5. **Waivers** (FAAB ROI, waiver efficiency, failed bids & bidding wars)
 

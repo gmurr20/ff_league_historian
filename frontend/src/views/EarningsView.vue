@@ -4,6 +4,7 @@ import { useLeagueMeta } from '@/composables/useLeagueMeta';
 import { fetchEarningsLeaderboard } from '@/api/client';
 import type { EarningsLeaderboardEntry, EarningsLeaderboardResponse } from '@/types/api';
 import WeeklyBounties from '@/components/earnings/WeeklyBounties.vue';
+import RegularSeasonPointsCard from '@/components/earnings/RegularSeasonPointsCard.vue';
 import EarningsScoreboardTable from '@/components/earnings/EarningsScoreboardTable.vue';
 import EarningsDetailDrawer from '@/components/earnings/EarningsDetailDrawer.vue';
 import LoadingState from '@/components/ui/LoadingState.vue';
@@ -54,6 +55,13 @@ function openManagerDetail(entry: EarningsLeaderboardEntry) {
   selectedManager.value = entry;
   drawerOpen.value = true;
 }
+
+function openManagerById(managerId: number) {
+  const match = earningsData.value?.leaderboard.find((e) => e.manager_id === managerId);
+  if (match) {
+    openManagerDetail(match);
+  }
+}
 </script>
 
 <template>
@@ -65,7 +73,7 @@ function openManagerDetail(entry: EarningsLeaderboardEntry) {
           Earnings Standings
         </h2>
         <p class="text-xs text-slate-400 mt-0.5 font-mono">
-          {{ isSingleSeason ? `Season ${selectedSeason} Weekly Bounties & Prize Standings` : 'All-Time Career Bankroll Standings' }}
+          {{ isSingleSeason ? `Season ${selectedSeason} Prize Standings` : 'All-Time Bankroll Standings' }}
         </p>
       </div>
     </div>
@@ -90,14 +98,22 @@ function openManagerDetail(entry: EarningsLeaderboardEntry) {
 
     <!-- Content State -->
     <div v-else-if="earningsData && earningsData.leaderboard.length > 0" class="space-y-3.5">
-      <!-- 1. AT THE VERY TOP OF SEASON: Weekly Bounties in 2 Columns -->
+      <!-- 1. AT THE VERY TOP OF SEASON: Regular Season Scoring Champion Award (when awarded) -->
+      <RegularSeasonPointsCard
+        v-if="isSingleSeason && earningsData.regular_season_points_winner"
+        :winner="earningsData.regular_season_points_winner"
+        :season-year="selectedSeason"
+        @open-manager="openManagerById"
+      />
+
+      <!-- 2. Weekly Bounties in 2 Columns -->
       <WeeklyBounties
         v-if="isSingleSeason"
         :payouts="earningsData.weekly_nuanced_payouts"
         :season-year="selectedSeason"
       />
 
-      <!-- 2. Earnings Standings Table (Direct flow matching Home Page) -->
+      <!-- 3. Earnings Standings Table (Direct flow matching Home Page) -->
       <EarningsScoreboardTable
         :leaderboard="earningsData.leaderboard"
         :is-single-season="isSingleSeason"

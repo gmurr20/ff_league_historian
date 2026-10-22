@@ -9,7 +9,6 @@ Purpose:
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
 
 import pytest
 from flask.testing import FlaskClient
@@ -110,8 +109,10 @@ def test_earnings_leaderboard_all_time(client: FlaskClient) -> None:
     assert top["total_earnings"] > 0
     assert top["weekly_earnings"] > 0
     assert top["podium_earnings"] > 0
+    assert top["points_title_cash"] >= 0
     assert top["weekly_wins_count"] > 0
     assert len(top["season_breakdown"]) >= 1
+    assert "regular_season_points_winner" in data
 
 
 def test_earnings_leaderboard_season_filter(client: FlaskClient) -> None:
@@ -120,10 +121,13 @@ def test_earnings_leaderboard_season_filter(client: FlaskClient) -> None:
     assert res.status_code == 200
     data = res.get_json()
     assert data["season_filter"] == 2023
+    assert "regular_season_points_winner" in data
 
     for entry in data["leaderboard"]:
+        assert "points_title_cash" in entry
         for breakdown in entry["season_breakdown"]:
             assert breakdown["season_year"] == 2023
+            assert "points_title_cash" in breakdown
 
 
 def test_earnings_bad_param(client: FlaskClient) -> None:
@@ -177,6 +181,19 @@ def test_standings_current_and_derived_metrics(client: FlaskClient) -> None:
         assert entry["optimal_points_for"] > 0
         assert entry["bench_points"] >= 0
         assert entry["lineup_efficiency"] > 0
+        assert isinstance(entry["championships"], int)
+        assert isinstance(entry["championship_years"], list)
+        assert isinstance(entry["is_defending_champion"], bool)
+
+    # Defending champion validation
+    assert data["defending_champion_manager_id"] is not None
+    assert data["defending_champion_team_id"] is not None
+    assert data["playoff_bracket"] is None  # Active season week 8 has not concluded regular season
+    defending_teams = [s for s in data["standings"] if s["is_defending_champion"]]
+    assert len(defending_teams) == 1
+    assert defending_teams[0]["manager_id"] == data["defending_champion_manager_id"]
+    assert defending_teams[0]["championships"] >= 1
+    assert len(defending_teams[0]["championship_years"]) == defending_teams[0]["championships"]
 
 
 def test_standings_completed_season(client: FlaskClient) -> None:
@@ -191,6 +208,66 @@ def test_standings_completed_season(client: FlaskClient) -> None:
     final_standings = [s["final_standing"] for s in data["standings"]]
     assert final_standings == [1, 2, 3, 4, 5, 6, 7, 8]
 
+    # Playoff bracket is populated for completed season
+    bracket = data["playoff_bracket"]
+    assert bracket is not None
+    assert bracket["is_available"] is True
+    assert len(bracket["rounds"]) >= 1
+    assert bracket["champion"] is not None
+    assert bracket["champion"]["final_standing"] == 1
+
+    # Accolades (runner-ups, third-places, scoring champions) are present on each entry
+    for s in data["standings"]:
+        assert isinstance(s["championships"], int)
+        assert isinstance(s["championship_years"], list)
+        assert isinstance(s["runner_ups"], int)
+        assert isinstance(s["runner_up_years"], list)
+        assert isinstance(s["third_places"], int)
+        assert isinstance(s["third_place_years"], list)
+        assert isinstance(s["scoring_champs"], int)
+        assert isinstance(s["scoring_champ_years"], list)
+
+    runner_up_entry = next((s for s in data["standings"] if s["final_standing"] == 2), None)
+    assert runner_up_entry is not None
+    assert runner_up_entry["runner_ups"] >= 1
+    assert 2023 in runner_up_entry["runner_up_years"]
+
+
+def test_standings_all_time_career(client: FlaskClient) -> None:
+    """Verifies all-time career standings aggregating all seasons and identifying inactive managers."""
+    res = client.get("/api/v1/standings/current?season=all")
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["season_year"] is None
+    assert data["is_active"] is False
+    assert data["is_completed"] is True
+    assert len(data["standings"]) == 9  # 9 primary franchise managers in seed_dev
+
+    # In seed_dev, Legacy Lou (mgr_09) churned out after 2022
+    legacy_lou = next((e for e in data["standings"] if "Legacy Lou" in e["manager_name"]), None)
+    assert legacy_lou is not None
+    assert legacy_lou["is_active"] is False  # Inactive manager
+
+    # Alice Archer (mgr_01) is active
+    alice = next((e for e in data["standings"] if "Alice Archer" in e["manager_name"]), None)
+    assert alice is not None
+    assert alice["is_active"] is True
+
+    # Ranks are assigned 1..N
+    ranks = [e["rank"] for e in data["standings"]]
+    assert ranks == list(range(1, len(data["standings"]) + 1))
+
+    # All-time entries expose podium finishes (1st, 2nd, 3rd) and scoring champ counts
+    for e in data["standings"]:
+        assert "championships" in e and isinstance(e["championships"], int)
+        assert "runner_ups" in e and isinstance(e["runner_ups"], int)
+        assert "third_places" in e and isinstance(e["third_places"], int)
+        assert "scoring_champs" in e and isinstance(e["scoring_champs"], int)
+        assert "championship_years" in e and isinstance(e["championship_years"], list)
+        assert "runner_up_years" in e and isinstance(e["runner_up_years"], list)
+        assert "third_place_years" in e and isinstance(e["third_place_years"], list)
+        assert "scoring_champ_years" in e and isinstance(e["scoring_champ_years"], list)
+
 
 def test_standings_not_found(client: FlaskClient) -> None:
     """Verifies 404 response when querying a non-existent season."""
@@ -201,89 +278,79 @@ def test_standings_not_found(client: FlaskClient) -> None:
 
 
 # ============================================================================
-# 4. Head-to-Head Rivalry Endpoints & Guardrail #4
+# 4. Hall of Fame & Legends Spotlight Endpoints
 # ============================================================================
 
 
-def test_head_to_head_matrix_and_guardrail_4(client: FlaskClient) -> None:
-    """Verifies rivalry matrix symmetry and exclusion of consolation games and byes."""
-    res = client.get("/api/v1/history/head-to-head")
+def test_hall_of_fame_banners_and_championship_spotlight(client: FlaskClient) -> None:
+    """Verifies championship banners, reigning champion spotlight, and top 4 championship heroes."""
+    res = client.get("/api/v1/hall-of-fame")
     assert res.status_code == 200
     assert res.headers.get("Cache-Control") == "public, max-age=60"
 
     # Alias check
-    alias_res = client.get("/api/v1/head-to-head")
+    alias_res = client.get("/api/v1/history/hall-of-fame")
     assert alias_res.status_code == 200
     assert res.get_json() == alias_res.get_json()
 
     data = res.get_json()
-    matrix = data["matrix"]
-    assert len(matrix) > 0
+    assert "banners" in data
+    assert "featured_champion" in data
+    assert len(data["banners"]) >= 2  # 2023 and 2022 champions
 
-    # Build map of (a, b) -> entry for symmetry checks
-    entry_map: dict[tuple[int, int], dict[str, Any]] = {
-        (e["manager_a_id"], e["manager_b_id"]): e for e in matrix
-    }
+    # Verify championship banners
+    b2023 = next((b for b in data["banners"] if b["season_year"] == 2023), None)
+    assert b2023 is not None
+    assert b2023["team_name"] == "Archer Assassins"
+    assert b2023["manager_name"] == "Alice Archer"
+    assert b2023["championship_score"] > 0
+    assert b2023["runner_up_team_name"] == "Baker's Dozen"
+    assert b2023["payout_amount"] == 600.0
 
-    # Verify matrix symmetry: A wins == B losses, A PF == B PA
-    for (a_id, b_id), a_entry in entry_map.items():
-        if (b_id, a_id) in entry_map:
-            b_entry = entry_map[(b_id, a_id)]
-            assert a_entry["wins"] == b_entry["losses"]
-            assert a_entry["losses"] == b_entry["wins"]
-            assert a_entry["ties"] == b_entry["ties"]
-            assert a_entry["points_for"] == b_entry["points_against"]
-            assert a_entry["points_against"] == b_entry["points_for"]
+    # Verify featured champion
+    champ = data["featured_champion"]
+    assert champ is not None
+    assert champ["season_year"] == 2023
+    assert champ["team_name"] == "Archer Assassins"
+    assert champ["regular_season_finish"] != ""
+    assert champ["hall_of_fame_number"] == 2
+    assert "championship_matchup" in champ
+    matchup = champ["championship_matchup"]
+    assert matchup["winning_score"] == 145.50
+    assert matchup["runner_up_score"] == 138.20
+    assert matchup["runner_up_team_name"] == "Baker's Dozen"
+
+    # Top 4 players that won them the championship game
+    top_players = champ["top_players"]
+    assert len(top_players) == 4
+    for idx, player in enumerate(top_players):
+        assert player["rank"] == idx + 1
+        assert player["full_name"] != ""
+        assert player["default_position"] in ("QB", "RB", "WR", "TE", "K", "D/ST")
+        assert player["fantasy_points"] > 0
+        assert "headshot_url" in player
+        assert player["role_title"] != ""
 
 
-def test_head_to_head_pairwise_deep_dive(client: FlaskClient) -> None:
-    """Verifies pairwise deep dive, regular vs playoff splits, and streaks."""
-    res = client.get("/api/v1/history/head-to-head?managerA=1&managerB=2")
+def test_hall_of_fame_season_filter(client: FlaskClient) -> None:
+    """Verifies querying a historical champion year in Hall of Fame."""
+    res = client.get("/api/v1/hall-of-fame?season=2022")
     assert res.status_code == 200
     data = res.get_json()
-
-    pair = data["pair_detail"]
-    assert pair is not None
-    assert pair["manager_a"]["manager_id"] == 1
-    assert pair["manager_b"]["manager_id"] == 2
-
-    # Combined split matches sum of regular + playoffs
-    reg = pair["regular_season"]
-    play = pair["playoffs"]
-    comb = pair["combined"]
-    assert comb["a_wins"] == reg["a_wins"] + play["a_wins"]
-    assert comb["b_wins"] == reg["b_wins"] + play["b_wins"]
-    assert comb["ties"] == reg["ties"] + play["ties"]
-    assert round(comb["a_points"] - comb["b_points"], 2) == comb["point_differential"]
-
-    # Current streak verified
-    streak = pair["current_streak"]
-    assert streak["length"] >= 1
-    assert streak["type"] in ("WIN", "TIE")
-
-    # Matchups feed
-    matchups = pair["matchups"]
-    assert len(matchups) == comb["a_wins"] + comb["b_wins"] + comb["ties"]
-    for m in matchups:
-        assert m["matchup_type"] in ("REGULAR", "WINNERS_BRACKET")
-
-    # Also test snake_case query params
-    snake_res = client.get("/api/v1/history/head-to-head?manager_a=1&manager_b=2")
-    assert snake_res.status_code == 200
-    assert snake_res.get_json() == data
+    assert data["selected_season"] == 2022
+    champ = data["featured_champion"]
+    assert champ is not None
+    assert champ["season_year"] == 2022
+    assert champ["hall_of_fame_number"] == 1
+    assert len(champ["top_players"]) == 4
 
 
-def test_head_to_head_consolation_exclusion(client: FlaskClient) -> None:
-    """Guardrail #4: Verifies LOSERS_CONSOLATION_LADDER games are excluded from H2H."""
-    # Manager 7 and Manager 8 played in week 15 2022 & 2023 as LOSERS_CONSOLATION_LADDER
-    res = client.get("/api/v1/history/head-to-head?managerA=7&managerB=8")
-    assert res.status_code == 200
-    pair = res.get_json()["pair_detail"]
-    if pair:
-        for m in pair["matchups"]:
-            assert m["matchup_type"] != "LOSERS_CONSOLATION_LADDER"
-            assert m["matchup_type"] != "WINNERS_CONSOLATION_LADDER"
-            assert m["matchup_type"] != "BYE"
+def test_hall_of_fame_invalid_season(client: FlaskClient) -> None:
+    """Verifies 400 Bad Request on invalid season parameter."""
+    res = client.get("/api/v1/hall-of-fame?season=invalid")
+    assert res.status_code == 400
+    data = res.get_json()
+    assert data["error"] == "BAD_REQUEST"
 
 
 # ============================================================================

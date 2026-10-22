@@ -44,6 +44,8 @@ function getPositionClass(pos: string): string {
     case 'D/ST':
     case 'DST':
       return 'bg-slate-500/20 text-slate-300 border-slate-500/40';
+    case 'PICK':
+      return 'bg-violet-500/20 text-violet-300 border-violet-500/40';
     default:
       return 'bg-slate-700 text-slate-300 border-slate-600';
   }
@@ -70,7 +72,7 @@ function getWinnerName(winnerId: number | null): string | null {
         >
           <Calendar class="w-3 h-3 text-slate-400" />
           <span>{{ trade.season_year }}</span>
-          <span v-if="trade.week != null">• Wk {{ trade.week }}</span>
+          <span v-if="trade.week != null">• {{ trade.week === 0 ? 'Preseason / Draft' : `Wk ${trade.week}` }}</span>
         </span>
         <span v-if="trade.executed_at" class="text-xs text-slate-400">
           {{ formatDate(trade.executed_at) }}

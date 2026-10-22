@@ -8,6 +8,7 @@ Purpose:
 from __future__ import annotations
 
 from backend.models.common import JsonType
+from backend.models.draft import DraftPick
 from backend.models.earnings import EarningsLedger
 from backend.models.lineup import WeeklyLineup
 from backend.models.manager import Manager
@@ -29,6 +30,7 @@ __all__ = [
     "Player",
     "Matchup",
     "WeeklyLineup",
+    "DraftPick",
     "Transaction",
     "TransactionItem",
     "Trade",

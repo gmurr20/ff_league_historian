@@ -19,8 +19,9 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
-from backend.database import get_session
+from backend.database import get_session, init_db
 from backend.jobs.deep_parsers import (
+    upsert_draft_picks_from_payload,
     upsert_players_from_payload,
     upsert_transactions_from_payload,
     upsert_weekly_lineups_from_payload,
@@ -39,6 +40,7 @@ from backend.jobs.parsers import (
     upsert_teams_from_payload,
 )
 from backend.models.matchup import Matchup
+from backend.models.player import Player
 from backend.models.raw_snapshot import RawEspnSnapshot
 from backend.models.season import Season
 from backend.models.sync_run import SyncRun
@@ -121,6 +123,7 @@ def sync_weekly(
         "mRoster",
         "mBoxscore",
         "mTransactions2",
+        "mDraftDetail",
     ]
 
     payload = None
@@ -189,11 +192,77 @@ def sync_weekly(
     team_map = upsert_teams_from_payload(session, season, payload, mgr_map, overrides_data)
     upsert_matchups_from_payload(session, season, payload, team_map)
 
+    # Fetch league communication topics (recent activity) for executed trades (2019+)
+    if active_season.season_year >= 2019 and hasattr(espn_client, "fetch_communication"):
+        try:
+            comm_filter = {
+                "topics": {
+                    "filterType": {"value": ["ACTIVITY_TRANSACTIONS"]},
+                    "limit": 500,
+                    "limitPerMessageSet": {"value": 25},
+                    "offset": 0,
+                    "sortMessageDate": {"sortPriority": 1, "sortAsc": False},
+                    "sortFor": {"sortPriority": 2, "sortAsc": False},
+                    "filterIncludeMessageTypeIds": {"value": [244, 245, 246, 290]},
+                }
+            }
+            comm_data = espn_client.fetch_communication(
+                season_year=active_season.season_year,
+                league_id=league_id or active_season.league_id,
+                x_fantasy_filter=comm_filter,
+            )
+            if comm_data and comm_data.get("topics"):
+                payload = dict(payload)
+                payload["topics"] = comm_data.get("topics")
+
+                # Fetch any missing players mentioned in communication topics
+                if hasattr(espn_client, "fetch_player_info"):
+                    missing_pids = set()
+                    for t in comm_data.get("topics", []):
+                        for m in t.get("messages", []):
+                            if m.get("messageTypeId") in (244, 245):
+                                pid = int(m.get("targetId", 0))
+                                if pid > 0 and not session.get(Player, pid):
+                                    missing_pids.add(pid)
+                    if missing_pids:
+                        players_data = espn_client.fetch_player_info(
+                            season_year=active_season.season_year,
+                            player_ids=list(missing_pids),
+                            league_id=league_id or active_season.league_id,
+                        )
+                        if players_data:
+                            upsert_players_from_payload(session, {"players": players_data})
+        except Exception as comm_exc:
+            logger.debug("Skipping communication fetch: %s", comm_exc)
+
+    # Upsert draft picks if present in payload
+    upsert_draft_picks_from_payload(session, season, payload, team_map, client=espn_client)
+
     # Upsert players, lineups and transactions restricted to the rolling window
     upsert_players_from_payload(session, payload)
     upsert_weekly_lineups_from_payload(
         session, season, payload, team_map, weeks=weeks_to_sync
     )
+
+    # Deep fetch per-week boxscores in rolling window to guarantee complete starter & bench roster snapshots
+    if hasattr(espn_client, "http_session"):
+        for w in weeks_to_sync:
+            try:
+                sp_payload = espn_client.fetch_league(
+                    season_year=active_season.season_year,
+                    views=["mBoxscore", "mRoster", "mTeam"],
+                    allow_inaccessible=True,
+                    league_id=league_id or active_season.league_id,
+                    scoring_period_id=w,
+                )
+                if sp_payload and isinstance(sp_payload, dict):
+                    upsert_players_from_payload(session, sp_payload)
+                    upsert_weekly_lineups_from_payload(
+                        session, season, sp_payload, team_map, weeks=[w]
+                    )
+            except Exception as sp_exc:
+                logger.debug("Failed weekly sync boxscore fetch for week %d: %s", w, sp_exc)
+
     upsert_transactions_from_payload(
         session,
         season,
@@ -272,6 +341,7 @@ def main() -> None:
     league_ids = [args.league_id] if args.league_id else get_configured_league_ids()
     target_league_id = league_ids[0]
 
+    init_db()
     with get_session() as session:
         run = sync_weekly(
             session=session,

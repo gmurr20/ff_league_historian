@@ -59,7 +59,7 @@ The backend is strictly divided into two distinct responsibilities:
   - `backend/routes/meta.py` (`/api/v1/health`, `/api/v1/meta`)
   - `backend/routes/earnings.py` (`/api/v1/earnings/leaderboard`)
   - `backend/routes/standings.py` (`/api/v1/standings/current`)
-  - `backend/routes/history.py` (`/api/v1/history/head-to-head`)
+  - `backend/routes/hall_of_fame.py` (`/api/v1/hall-of-fame`)
   - `backend/routes/trades.py` (`/api/v1/trades/trends`)
   - `backend/routes/transactions.py` (`/api/v1/transactions/summary`)
 - **Caching Headers:** Add `Cache-Control: public, max-age=60` to API responses to allow fast browser/PWA caching while preventing stale financial/standings data.

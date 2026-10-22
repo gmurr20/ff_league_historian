@@ -21,7 +21,7 @@ const subtitle = computed(() => {
   if (props.isSingleSeason) {
     return `${props.entry.display_name} · Season ${props.seasonYear ?? ''}`;
   }
-  return `${props.entry.display_name} · ${props.entry.seasons_played} ${props.entry.seasons_played === 1 ? 'Season' : 'Seasons'}`;
+  return `${props.entry.display_name} · ${props.entry.seasons_played} ${props.entry.seasons_played === 1 ? 'season' : 'seasons'}`;
 });
 
 // Sorted seasons (most recent first)
@@ -41,6 +41,14 @@ const currentSeasonItem = computed<ManagerSeasonBreakdown | null>(() => {
     );
   }
   return props.entry.season_breakdown[0] ?? null;
+});
+
+// Points title cash for active view
+const currentPointsTitleCash = computed(() => {
+  if (props.isSingleSeason && currentSeasonItem.value) {
+    return currentSeasonItem.value.points_title_cash ?? 0;
+  }
+  return props.entry?.points_title_cash ?? 0;
 });
 
 // Bounties for the active view (most recent week first)
@@ -67,8 +75,33 @@ const displayedBounties = computed(() => {
         <div class="flex items-center gap-3 min-w-0">
           <TeamAvatar :src="entry.avatar_url" :name="entry.team_name" size="md" rounded="lg" />
           <div class="min-w-0">
-            <h3 class="text-sm sm:text-base font-bold text-slate-100 truncate">{{ entry.team_name }}</h3>
-            <p class="text-xs text-slate-400 truncate">{{ entry.display_name }}</p>
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <h3 class="text-sm sm:text-base font-bold text-slate-100 truncate">{{ entry.team_name }}</h3>
+              <!-- Championship Stars -->
+              <div
+                v-if="entry.championships > 0"
+                class="inline-flex items-center gap-0.5 shrink-0"
+                :title="`${entry.championships}x Champion${entry.championship_years && entry.championship_years.length ? ` (${entry.championship_years.join(', ')})` : ''}`"
+              >
+                <span
+                  v-for="yr in (entry.championship_years && entry.championship_years.length ? entry.championship_years : entry.championships)"
+                  :key="yr"
+                  class="text-amber-400 text-sm leading-none drop-shadow-[0_0_6px_rgba(251,191,36,0.7)] select-none"
+                >
+                  ★
+                </span>
+              </div>
+              <!-- Defending Champion -->
+              <span
+                v-if="entry.is_defending_champion"
+                class="inline-flex items-center gap-1 text-[9px] font-mono font-black uppercase px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/35 shrink-0 shadow-sm"
+                title="Defending Champion"
+              >
+                <span class="text-[10px]">🏆</span>
+                <span>DEFENDING CHAMP</span>
+              </span>
+            </div>
+            <p class="text-xs text-slate-400 truncate mt-0.5">{{ entry.display_name }}</p>
           </div>
         </div>
 
@@ -108,6 +141,40 @@ const displayedBounties = computed(() => {
           </div>
           <span class="text-[10px] text-slate-500 font-mono">
             {{ entry.championships > 0 ? `${entry.championships} Titles` : 'Placements' }}
+          </span>
+        </div>
+      </div>
+
+      <!-- The Lamar Jackson Award Banner (Regular Season Scoring King) -->
+      <div
+        v-if="currentPointsTitleCash > 0"
+        class="rounded-xl bg-gradient-to-r from-purple-950/40 via-purple-900/20 to-slate-900/80 border border-purple-500/30 p-2.5 sm:p-3 flex items-center justify-between gap-2"
+      >
+        <div class="flex items-center gap-2.5 min-w-0">
+          <div class="w-7 h-7 sm:w-8 sm:h-8 rounded-full overflow-hidden shrink-0 border border-purple-500/40 bg-purple-950/80 shadow-md flex items-center justify-center">
+            <img
+              src="https://a.espncdn.com/i/headshots/nfl/players/full/3916387.png"
+              alt="Lamar Jackson - King of the Regular Season"
+              class="w-full h-full object-cover object-top scale-110"
+              loading="lazy"
+            />
+          </div>
+          <div class="min-w-0">
+            <div class="text-xs font-black uppercase text-purple-200 font-mono tracking-tight">
+              The Lamar Jackson Award
+            </div>
+            <div class="text-[10px] text-slate-400 truncate font-mono">
+              King of the Regular Season · Highest PF
+            </div>
+          </div>
+        </div>
+
+        <div class="text-right font-mono shrink-0">
+          <div class="text-xs sm:text-sm font-bold text-emerald-400 tabular-nums">
+            +${{ currentPointsTitleCash.toFixed(2) }}
+          </div>
+          <span class="text-[9px] uppercase font-bold text-purple-400/80 tracking-wider">
+            Scoring Title
           </span>
         </div>
       </div>
@@ -189,22 +256,37 @@ const displayedBounties = computed(() => {
               </div>
             </div>
 
-            <div class="grid grid-cols-3 gap-2 text-[11px] font-mono border-t border-slate-800/60 pt-1.5 text-slate-400">
+            <div class="grid grid-cols-4 gap-1.5 text-[11px] font-mono border-t border-slate-800/60 pt-1.5 text-slate-400">
               <div>
                 <span class="text-[9px] uppercase text-slate-500 block">Wins</span>
                 <span class="text-slate-200 font-bold">${{ item.weekly_wins_cash.toFixed(0) }}</span>
-                <span class="text-[10px] text-slate-500 ml-1">({{ item.weekly_wins }}W)</span>
+                <span class="text-[10px] text-slate-500 ml-0.5">({{ item.weekly_wins }}W)</span>
               </div>
 
               <div>
                 <span class="text-[9px] uppercase text-slate-500 block">Bounties</span>
                 <span class="text-emerald-400 font-bold">${{ item.weekly_bonus_cash.toFixed(0) }}</span>
-                <span class="text-[10px] text-slate-500 ml-1">({{ item.bounty_receipts?.length || 0 }})</span>
+                <span class="text-[10px] text-slate-500 ml-0.5">({{ item.bounty_receipts?.length || 0 }})</span>
+              </div>
+
+              <div>
+                <span class="text-[9px] uppercase text-slate-500 block">PF Title</span>
+                <span
+                  class="font-bold"
+                  :class="item.points_title_cash > 0 ? 'text-amber-400' : 'text-slate-600'"
+                >
+                  ${{ item.points_title_cash.toFixed(0) }}
+                </span>
               </div>
 
               <div>
                 <span class="text-[9px] uppercase text-slate-500 block">Podium</span>
-                <span class="text-amber-400 font-bold">${{ item.podium_earnings.toFixed(0) }}</span>
+                <span
+                  class="font-bold"
+                  :class="item.podium_earnings > 0 ? 'text-amber-400' : 'text-slate-600'"
+                >
+                  ${{ item.podium_earnings.toFixed(0) }}
+                </span>
               </div>
             </div>
           </div>

@@ -69,6 +69,7 @@ export interface ManagerSeasonBreakdown {
   logo_url: string | null;
   weekly_earnings: number;
   podium_earnings: number;
+  points_title_cash: number;
   total_earnings: number;
   weekly_wins: number;
   weekly_ties: number;
@@ -89,6 +90,7 @@ export interface EarningsLeaderboardEntry {
   total_earnings: number;
   weekly_earnings: number;
   podium_earnings: number;
+  points_title_cash: number;
   weekly_wins_count: number;
   weekly_ties_count: number;
   weekly_wins_cash: number;
@@ -97,6 +99,8 @@ export interface EarningsLeaderboardEntry {
   weekly_high_score_losses_count: number;
   bounty_receipts: ManagerBountyReceipt[];
   championships: number;
+  championship_years: number[];
+  is_defending_champion: boolean;
   runner_ups: number;
   third_places: number;
   seasons_played: number;
@@ -119,11 +123,24 @@ export interface WeeklyNuancedPayoutEntry {
   high_loser_is_tie: boolean;
 }
 
+export interface RegularSeasonPointsWinner {
+  manager_id: number;
+  manager_name: string;
+  team_id: number;
+  team_name: string;
+  avatar_url: string | null;
+  points: number;
+  amount: number;
+  is_tie: boolean;
+  description: string;
+}
+
 export interface EarningsLeaderboardResponse {
   season_filter: number | null;
   weekly_win_value: number;
   leaderboard: EarningsLeaderboardEntry[];
   weekly_nuanced_payouts: WeeklyNuancedPayoutEntry[];
+  regular_season_points_winner: RegularSeasonPointsWinner | null;
 }
 
 // ==========================================
@@ -155,6 +172,7 @@ export interface StandingEntry {
   manager_id: number;
   manager_name: string;
   co_manager_name: string | null;
+  is_active: boolean;
   wins: number;
   losses: number;
   ties: number;
@@ -179,104 +197,156 @@ export interface StandingEntry {
   podium_earnings: number;
   total_earnings: number;
   faab_remaining: number;
+  championships: number;
+  championship_years: number[];
+  runner_ups: number;
+  runner_up_years: number[];
+  third_places: number;
+  third_place_years: number[];
+  scoring_champs: number;
+  scoring_champ_years: number[];
+  is_defending_champion: boolean;
   weekly_history: WeeklyStandingPoint[];
 }
 
-export interface StandingsResponse {
+export interface BracketTeamRef {
+  team_id: number;
+  team_name: string;
+  team_abbrev: string | null;
+  logo_url: string | null;
+  manager_id: number;
+  manager_name: string;
+  playoff_seed: number | null;
+  final_standing: number | null;
+}
+
+export interface PlayoffMatchupItem {
+  id: number;
+  week: number;
+  matchup_type: string;
+  round_label: string;
+  home_team: BracketTeamRef;
+  away_team: BracketTeamRef | null;
+  home_score: number;
+  away_score: number;
+  winner_team_id: number | null;
+  is_completed: boolean;
+  is_bye: boolean;
+}
+
+export interface PlayoffRound {
+  week: number;
+  round_label: string;
+  winners_bracket: PlayoffMatchupItem[];
+  consolation: PlayoffMatchupItem[];
+}
+
+export interface PlayoffBracket {
   season_year: number;
+  is_available: boolean;
+  championship_round_week: number;
+  rounds: PlayoffRound[];
+  champion: BracketTeamRef | null;
+  runner_up: BracketTeamRef | null;
+  third_place: BracketTeamRef | null;
+}
+
+export interface StandingsResponse {
+  season_year: number | null;
   is_active: boolean;
   is_completed: boolean;
   current_week: number;
   regular_season_weeks: number;
   playoff_team_count: number;
+  defending_champion_manager_id: number | null;
+  defending_champion_team_id: number | null;
+  playoff_bracket: PlayoffBracket | null;
   standings: StandingEntry[];
 }
 
 // ==========================================
-// 4. Head-to-Head Rivalry
+// 4. Hall of Fame & Legends
 // ==========================================
 
-export interface H2HManagerRef {
-  manager_id: number;
-  display_name: string;
+export interface HallOfFameBanner {
+  season_year: number;
+  team_id: number;
   team_name: string;
+  team_abbrev: string;
+  logo_url: string | null;
+  manager_id: number;
+  manager_name: string;
   avatar_url: string | null;
-}
-
-export interface H2HMatrixEntry {
-  manager_a_id: number;
-  manager_a_name: string;
-  manager_b_id: number;
-  manager_b_name: string;
+  co_manager_id: number | null;
+  co_manager_name: string | null;
   wins: number;
   losses: number;
   ties: number;
-  win_pct: number;
   points_for: number;
   points_against: number;
-  total_games: number;
+  regular_season_finish: string;
+  championship_score: number;
+  runner_up_team_id: number | null;
+  runner_up_team_name: string;
+  runner_up_manager_name: string | null;
+  runner_up_score: number;
+  margin_of_victory: number;
+  total_earnings: number;
+  payout_amount: number;
 }
 
-export interface H2HRecordSplit {
-  a_wins: number;
-  b_wins: number;
-  ties: number;
-  a_points: number;
-  b_points: number;
-}
-
-export interface H2HCombinedSplit extends H2HRecordSplit {
-  point_differential: number;
-}
-
-export interface H2HStreak {
-  manager_id: number | null;
-  display_name: string | null;
-  length: number;
-  type: "WIN" | "TIE" | "NONE";
-}
-
-export interface H2HGameHighlight {
-  season_year: number;
+export interface ChampionshipMatchupDetail {
   week: number;
-  matchup_type: string;
-  winner_manager_id: number | null;
-  winner_name: string | null;
-  winner_score: number;
-  loser_score: number;
-  margin: number;
+  matchup_id: number | null;
+  winning_score: number;
+  runner_up_team_id: number | null;
+  runner_up_team_name: string;
+  runner_up_manager_name: string | null;
+  runner_up_logo_url: string | null;
+  runner_up_score: number;
+  margin_of_victory: number;
 }
 
-export interface H2HMatchupGame {
-  matchup_id: number;
+export interface HallOfFameHeroPlayer {
+  rank: number;
+  player_id: number;
+  full_name: string;
+  default_position: string;
+  pro_team: string;
+  headshot_url: string | null;
+  slot_position: string;
+  fantasy_points: number;
+  projected_points: number;
+  stats_summary: string;
+  role_title: string;
+  pct_of_team_points: number;
+}
+
+export interface FeaturedChampion {
   season_year: number;
-  week: number;
-  matchup_type: string;
-  manager_a_team_name: string;
-  manager_b_team_name: string;
-  manager_a_logo_url: string | null;
-  manager_b_logo_url: string | null;
-  manager_a_score: number;
-  manager_b_score: number;
-  winner_manager_id: number | null;
+  team_id: number;
+  team_name: string;
+  team_abbrev: string;
+  logo_url: string | null;
+  manager_id: number;
+  manager_name: string;
+  avatar_url: string | null;
+  co_manager_id: number | null;
+  co_manager_name: string | null;
+  regular_season_finish: string;
+  hall_of_fame_number: number;
+  record: string;
+  total_earnings: number;
+  championship_matchup: ChampionshipMatchupDetail;
+  top_players: HallOfFameHeroPlayer[];
 }
 
-export interface H2HPairDetail {
-  manager_a: H2HManagerRef;
-  manager_b: H2HManagerRef;
-  regular_season: H2HRecordSplit;
-  playoffs: H2HRecordSplit;
-  combined: H2HCombinedSplit;
-  current_streak: H2HStreak;
-  biggest_blowout: H2HGameHighlight | null;
-  closest_game: H2HGameHighlight | null;
-  matchups: H2HMatchupGame[];
-}
-
-export interface HeadToHeadResponse {
-  managers: H2HManagerRef[];
-  matrix: H2HMatrixEntry[];
-  pair_detail: H2HPairDetail | null;
+export interface HallOfFameResponse {
+  reigning_champion_year: number;
+  selected_season: number;
+  available_seasons: number[];
+  banners: HallOfFameBanner[];
+  featured_champion: FeaturedChampion | null;
 }
 
 // ==========================================
@@ -573,11 +643,19 @@ Returns regular season standings, official records, All-Play records, Median rec
     "is_active": true,
     "is_completed": false,
     "current_week": 7,
+    "regular_season_weeks": 14,
+    "playoff_team_count": 6,
+    "defending_champion_manager_id": 1,
+    "defending_champion_team_id": 101,
+    "playoff_bracket": null,
     "standings": [
       {
         "rank": 1,
+        "power_rank": 1,
         "team_id": 101,
         "team_name": "Show Me the Murray",
+        "team_abbrev": "MURR",
+        "logo_url": null,
         "manager_id": 1,
         "manager_name": "Greg Murray",
         "co_manager_name": null,
@@ -604,7 +682,11 @@ Returns regular season standings, official records, All-Play records, Median rec
         "weekly_earnings": 60.0,
         "podium_earnings": 0.0,
         "total_earnings": 60.0,
-        "faab_remaining": 45
+        "faab_remaining": 45,
+        "championships": 2,
+        "championship_years": [2024, 2025],
+        "is_defending_champion": true,
+        "weekly_history": []
       }
     ]
   }
@@ -612,96 +694,86 @@ Returns regular season standings, official records, All-Play records, Median rec
 
 ---
 
-### 5. `GET /api/v1/history/head-to-head`
-Returns the complete N×N career rivalry matrix, and optionally deep pairwise comparison when `managerA` and `managerB` are supplied.
+### 4. `GET /api/v1/hall-of-fame`
+Returns all-time championship banners and the featured champion's Pokémon-inspired Elite Four Hall of Fame spotlight, with top 4 championship heroes, player photos, and margin of victory.
 - **Query Parameters:**
-  - `managerA` (optional, integer): First manager ID.
-  - `managerB` (optional, integer): Second manager ID.
-- **Response Schema:** `HeadToHeadResponse`
+  - `season` (optional, integer): Filter featured champion to a specific championship year, defaulting to the latest reigning champion.
+- **Aliases:** `GET /api/v1/history/hall-of-fame`
+- **Response Schema:** `HallOfFameResponse`
 - **Example Response:**
   ```json
   {
-    "managers": [
-      { "manager_id": 1, "display_name": "Greg Murray" },
-      { "manager_id": 2, "display_name": "John Doe" }
-    ],
-    "matrix": [
+    "reigning_champion_year": 2023,
+    "selected_season": 2023,
+    "available_seasons": [2023, 2022],
+    "banners": [
       {
-        "manager_a_id": 1,
-        "manager_a_name": "Greg Murray",
-        "manager_b_id": 2,
-        "manager_b_name": "John Doe",
-        "wins": 5,
-        "losses": 2,
+        "season_year": 2023,
+        "team_id": 9,
+        "team_name": "Archer Assassins",
+        "team_abbrev": "ARC",
+        "logo_url": "https://fantasy.espn.com/logos/arc.png",
+        "manager_id": 1,
+        "manager_name": "Alice Archer",
+        "avatar_url": null,
+        "co_manager_id": null,
+        "co_manager_name": null,
+        "wins": 9,
+        "losses": 5,
         "ties": 0,
-        "win_pct": 0.714,
-        "points_for": 845.2,
-        "points_against": 760.1,
-        "total_games": 7
+        "points_for": 1670.5,
+        "points_against": 1565.25,
+        "regular_season_finish": "Seed #1",
+        "championship_score": 145.5,
+        "runner_up_team_id": 10,
+        "runner_up_team_name": "Baker's Dozen",
+        "runner_up_manager_name": "Bob Baker",
+        "runner_up_score": 138.2,
+        "margin_of_victory": 7.3,
+        "total_earnings": 580.0,
+        "payout_amount": 600.0
       }
     ],
-    "pair_detail": {
-      "manager_a": { "manager_id": 1, "display_name": "Greg Murray" },
-      "manager_b": { "manager_id": 2, "display_name": "John Doe" },
-      "regular_season": {
-        "a_wins": 4,
-        "b_wins": 2,
-        "ties": 0,
-        "a_points": 710.2,
-        "b_points": 650.1
+    "featured_champion": {
+      "season_year": 2023,
+      "team_id": 9,
+      "team_name": "Archer Assassins",
+      "team_abbrev": "ARC",
+      "logo_url": "https://fantasy.espn.com/logos/arc.png",
+      "manager_id": 1,
+      "manager_name": "Alice Archer",
+      "avatar_url": null,
+      "co_manager_id": null,
+      "co_manager_name": null,
+      "regular_season_finish": "Seed #1",
+      "hall_of_fame_number": 2,
+      "record": "9-5",
+      "total_earnings": 580.0,
+      "championship_matchup": {
+        "week": 17,
+        "matchup_id": 157,
+        "winning_score": 145.5,
+        "runner_up_team_id": 10,
+        "runner_up_team_name": "Baker's Dozen",
+        "runner_up_manager_name": "Bob Baker",
+        "runner_up_logo_url": "https://fantasy.espn.com/logos/bak.png",
+        "runner_up_score": 138.2,
+        "margin_of_victory": 7.3
       },
-      "playoffs": {
-        "a_wins": 1,
-        "b_wins": 0,
-        "ties": 0,
-        "a_points": 135.0,
-        "b_points": 110.0
-      },
-      "combined": {
-        "a_wins": 5,
-        "b_wins": 2,
-        "ties": 0,
-        "a_points": 845.2,
-        "b_points": 760.1,
-        "point_differential": 85.1
-      },
-      "current_streak": {
-        "manager_id": 1,
-        "display_name": "Greg Murray",
-        "length": 3,
-        "type": "WIN"
-      },
-      "biggest_blowout": {
-        "season_year": 2024,
-        "week": 6,
-        "matchup_type": "REGULAR",
-        "winner_manager_id": 1,
-        "winner_name": "Greg Murray",
-        "winner_score": 142.5,
-        "loser_score": 88.0,
-        "margin": 54.5
-      },
-      "closest_game": {
-        "season_year": 2025,
-        "week": 11,
-        "matchup_type": "REGULAR",
-        "winner_manager_id": 1,
-        "winner_name": "Greg Murray",
-        "winner_score": 112.4,
-        "loser_score": 110.2,
-        "margin": 2.2
-      },
-      "matchups": [
+      "top_players": [
         {
-          "matchup_id": 1001,
-          "season_year": 2025,
-          "week": 11,
-          "matchup_type": "REGULAR",
-          "manager_a_team_name": "Show Me the Murray",
-          "manager_b_team_name": "Doe A Deer",
-          "manager_a_score": 112.4,
-          "manager_b_score": 110.2,
-          "winner_manager_id": 1
+          "rank": 1,
+          "player_id": 103,
+          "full_name": "Josh Allen",
+          "default_position": "QB",
+          "pro_team": "BUF",
+          "headshot_url": "https://a.espncdn.com/i/headshots/nfl/players/full/103.png",
+          "slot_position": "WR",
+          "fantasy_points": 36.0,
+          "projected_points": 20.0,
+          "stats_summary": "2 TDs • 250 Pass Yds",
+          "role_title": "CHAMPION MVP",
+          "pct_of_team_points": 24.7
         }
       ]
     }

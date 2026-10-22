@@ -42,6 +42,7 @@ def load_manager_overrides(
           - "guid_to_canonical_guid": dict[str, str]
           - "team_season_overrides": dict[tuple[int, int], str] -> (season_year, espn_team_id): canonical_guid
           - "display_name_overrides": dict[str, str] -> canonical_guid/source_id: display_name
+          - "ignored_member_guids": set[str]
     """
     path = Path(overrides_path) if overrides_path else get_default_overrides_path()
     if not path.is_file():
@@ -50,6 +51,7 @@ def load_manager_overrides(
             "guid_to_canonical_guid": {},
             "team_season_overrides": {},
             "display_name_overrides": {},
+            "ignored_member_guids": set(),
         }
 
     try:
@@ -61,6 +63,7 @@ def load_manager_overrides(
             "guid_to_canonical_guid": {},
             "team_season_overrides": {},
             "display_name_overrides": {},
+            "ignored_member_guids": set(),
         }
 
     guid_map = data.get("guid_to_canonical_guid", {})
@@ -79,10 +82,13 @@ def load_manager_overrides(
         if src_id and target_name:
             display_name_map[src_id] = target_name
 
+    ignored_guids = set(data.get("ignored_member_guids", []))
+
     return {
         "guid_to_canonical_guid": guid_map,
         "team_season_overrides": team_season_map,
         "display_name_overrides": display_name_map,
+        "ignored_member_guids": ignored_guids,
     }
 
 
@@ -115,6 +121,7 @@ def resolve_or_upsert_managers(
     guid_to_canonical = overrides.get("guid_to_canonical_guid", {})
     display_name_overrides = overrides.get("display_name_overrides", {})
     team_season_overrides = overrides.get("team_season_overrides", {})
+    ignored_guids = set(overrides.get("ignored_member_guids", set()))
 
     season_year = payload.get("seasonId") or payload.get("season_year", 0)
 
@@ -122,7 +129,7 @@ def resolve_or_upsert_managers(
     members_data: dict[str, dict[str, Any]] = {}
     for m in payload.get("members", []):
         raw_guid = m.get("id")
-        if not raw_guid:
+        if not raw_guid or raw_guid in ignored_guids:
             continue
         members_data[raw_guid] = m
 
@@ -135,25 +142,33 @@ def resolve_or_upsert_managers(
         # Check team season override first
         if (season_year, espn_t_id) in team_season_overrides:
             override_guid = team_season_overrides[(season_year, espn_t_id)]
-            needed_guids.add(override_guid)
-            if t_logo:
-                owner_logo_map[override_guid] = t_logo
+            if override_guid not in ignored_guids:
+                needed_guids.add(override_guid)
+                if t_logo:
+                    owner_logo_map[override_guid] = t_logo
 
         primary_owner = t.get("primaryOwner")
-        if primary_owner:
+        if primary_owner and primary_owner not in ignored_guids:
             needed_guids.add(primary_owner)
             if t_logo:
                 owner_logo_map[primary_owner] = t_logo
         for owner in t.get("owners", []):
-            if owner:
+            if owner and owner not in ignored_guids:
                 needed_guids.add(owner)
                 if t_logo and owner not in owner_logo_map:
                     owner_logo_map[owner] = t_logo
 
     # 3. Canonicalize all needed GUIDs
+    # Sort so that canonical GUIDs (raw_guid == canonical_guid) are processed before aliases
+    sorted_guids = sorted(
+        needed_guids,
+        key=lambda g: 0 if guid_to_canonical.get(g, g) == g else 1,
+    )
     canonical_to_info: dict[str, dict[str, Any]] = {}
-    for raw_guid in needed_guids:
+    for raw_guid in sorted_guids:
         canonical_guid = guid_to_canonical.get(raw_guid, raw_guid)
+        if canonical_guid in ignored_guids:
+            continue
         m_info = members_data.get(raw_guid, {})
 
         first = _format_name_token(str(m_info.get("firstName") or ""))
@@ -180,13 +195,18 @@ def resolve_or_upsert_managers(
         )
 
         existing_info = canonical_to_info.get(canonical_guid)
-        if existing_info is None or display_name != canonical_guid:
+        if existing_info is None:
             canonical_to_info[canonical_guid] = {
                 "display_name": display_name,
-                "avatar_url": avatar_url or (existing_info.get("avatar_url") if existing_info else None),
+                "avatar_url": avatar_url,
             }
-        elif avatar_url and not existing_info.get("avatar_url"):
-            existing_info["avatar_url"] = avatar_url
+        else:
+            # If canonical_to_info already has an entry from canonical GUID,
+            # do not let an alias overwrite the canonical manager's display name.
+            if existing_info["display_name"] == canonical_guid and display_name != canonical_guid:
+                existing_info["display_name"] = display_name
+            if avatar_url and not existing_info.get("avatar_url"):
+                existing_info["avatar_url"] = avatar_url
 
     # 4. Upsert Manager records in database
     managers_by_guid: dict[str, Manager] = {}
@@ -273,7 +293,14 @@ def upsert_season_from_payload(
         current_week = status.get("currentMatchupPeriod", 1)
         is_active = bool(status.get("isActive", False))
         final_scoring_period = status.get("finalScoringPeriod", 17)
-        is_completed = (not is_active) or (current_week > final_scoring_period)
+        latest_scoring_period = status.get("latestScoringPeriod", 0)
+        is_completed = (
+            (not is_active)
+            or (current_week > final_scoring_period)
+            or (latest_scoring_period > final_scoring_period)
+        )
+        if is_completed and latest_scoring_period > final_scoring_period:
+            is_active = False
     elif season:
         current_week = season.current_week
         is_active = season.is_active
@@ -366,6 +393,7 @@ def upsert_teams_from_payload(
     overrides = overrides_data or load_manager_overrides()
     guid_to_canonical = overrides.get("guid_to_canonical_guid", {})
     team_season_overrides = overrides.get("team_season_overrides", {})
+    ignored_guids = set(overrides.get("ignored_member_guids", set()))
 
     teams_by_espn_id: dict[int, Team] = {}
 
@@ -388,30 +416,41 @@ def upsert_teams_from_payload(
         if (season.season_year, espn_team_id) in team_season_overrides:
             primary_guid = team_season_overrides[(season.season_year, espn_team_id)]
         else:
-            primary_guid = t.get("primaryOwner")
-            if not primary_guid and t.get("owners"):
-                primary_guid = t["owners"][0]
+            cand = t.get("primaryOwner")
+            if cand and cand not in ignored_guids:
+                primary_guid = cand
+            elif t.get("owners"):
+                non_ignored = [o for o in t["owners"] if o and o not in ignored_guids]
+                if non_ignored:
+                    primary_guid = non_ignored[0]
 
-        canonical_primary = guid_to_canonical.get(primary_guid, primary_guid)
-        manager = manager_map.get(canonical_primary)
+        canonical_primary = guid_to_canonical.get(primary_guid, primary_guid) if primary_guid else None
+        manager = manager_map.get(canonical_primary) if canonical_primary else None
         if not manager:
             # Fallback: create placeholder manager if missing
+            mgr_key = canonical_primary or f"placeholder_mgr_{espn_team_id}"
             manager = Manager(
-                espn_member_id=canonical_primary or f"placeholder_mgr_{espn_team_id}",
+                espn_member_id=mgr_key,
                 display_name=f"Manager {espn_team_id}",
                 is_active=True,
             )
             session.add(manager)
             session.flush()
-            manager_map[canonical_primary or f"placeholder_mgr_{espn_team_id}"] = manager
+            manager_map[mgr_key] = manager
 
         # Co-manager resolution
         co_manager: Manager | None = None
-        raw_owners = t.get("owners", [primary_guid] if primary_guid else [])
+        raw_owners = [
+            o for o in t.get("owners", [primary_guid] if primary_guid else [])
+            if o and o not in ignored_guids
+        ]
         if len(raw_owners) > 1:
             co_guid = raw_owners[1]
             canonical_co = guid_to_canonical.get(co_guid, co_guid)
-            co_manager = manager_map.get(canonical_co)
+            if canonical_co and canonical_co != canonical_primary:
+                co_candidate = manager_map.get(canonical_co)
+                if co_candidate and co_candidate.id != manager.id:
+                    co_manager = co_candidate
 
         # Attach ESPN team avatar to manager / co-manager
         if logo_url and manager:
@@ -448,6 +487,14 @@ def upsert_teams_from_payload(
         playoff_seed = int(raw_seed) if raw_seed and int(raw_seed) > 0 else None
         raw_final = t.get("rankCalculatedFinal")
         final_standing = int(raw_final) if raw_final and int(raw_final) > 0 else None
+
+        # Consolation / bottom bracket guardrail:
+        # Teams that did not make the championship playoff bracket (playoff_seed > playoff_team_count)
+        # do not move standings based on consolation ladder results.
+        # Their final standing remains their regular season seed.
+        playoff_cutoff = season.playoff_team_count or 6
+        if playoff_seed is not None and playoff_seed > playoff_cutoff:
+            final_standing = playoff_seed
 
         tx_counter = t.get("transactionCounter", {})
         budget_spent = tx_counter.get("acquisitionBudgetSpent", 0)

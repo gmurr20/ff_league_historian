@@ -2,8 +2,10 @@
   "_comment": "Declarative manager identity overrides for legacy seasons, owner account transitions, or aliases.",
   "guid_to_canonical_guid": {
     "{LEGACY-MEMBER-GUID-2017}": "{CANONICAL-MGR-01}",
-    "{CO-OWNER-MEMBER-GUID}": "{CANONICAL-MGR-07}"
+    "{CO-OWNER-MEMBER-GUID}": "{CANONICAL-MGR-07}",
+    "{ED31C09F-DAD7-4B26-9060-A74F5F8E4C33}": "{17D815EB-ED14-4EA5-AEED-91210371D0BD}"
   },
+  "ignored_member_guids": [],
   "team_season_overrides": [
     {
       "season_year": 2017,

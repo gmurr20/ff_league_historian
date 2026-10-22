@@ -8,6 +8,7 @@ Purpose:
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -60,16 +61,19 @@ def get_trades_trends(
     trades_query = session.query(Trade).filter(Trade.status == "EXECUTED")
     if season_filter is not None:
         trades_query = trades_query.filter(Trade.season_year == season_filter)
-    trades = trades_query.order_by(Trade.executed_at.desc(), Trade.id.desc()).all()
+    trades_raw = trades_query.order_by(Trade.executed_at.desc(), Trade.id.desc()).all()
 
     # Pre-fetch trade transactions and items
-    trade_tx_ids = [t.espn_transaction_id for t in trades]
+    trade_tx_ids = [t.espn_transaction_id for t in trades_raw]
     transactions = (
         session.query(Transaction)
         .filter(Transaction.espn_transaction_id.in_(trade_tx_ids))
         .all()
     )
     tx_by_espn_id = {tx.espn_transaction_id: tx for tx in transactions}
+    for tx in transactions:
+        if tx.related_espn_transaction_id and tx.related_espn_transaction_id not in tx_by_espn_id:
+            tx_by_espn_id[tx.related_espn_transaction_id] = tx
 
     # Pre-fetch transaction items
     tx_pks = [tx.id for tx in transactions]
@@ -84,6 +88,26 @@ def get_trades_trends(
     items_by_tx_id: dict[int, list[TransactionItem]] = defaultdict(list)
     for item in trade_items:
         items_by_tx_id[item.transaction_id].append(item)
+
+    # Deduplicate trades (defense in depth): prioritize trades with associated items
+    trades_sorted = sorted(
+        trades_raw,
+        key=lambda t: (
+            len(items_by_tx_id.get(tx_by_espn_id.get(t.espn_transaction_id).id, []))
+            if tx_by_espn_id.get(t.espn_transaction_id)
+            else 0
+        ),
+        reverse=True,
+    )
+    seen_trade_pairs: set[tuple[int, int, frozenset[int]]] = set()
+    trades: list[Trade] = []
+    for t in trades_sorted:
+        t_pair = (t.season_year, t.week or 0, frozenset([t.proposing_team_id, t.accepting_team_id]))
+        if t_pair in seen_trade_pairs:
+            continue
+        seen_trade_pairs.add(t_pair)
+        trades.append(t)
+    trades.sort(key=lambda t: (t.executed_at or datetime.min, t.id), reverse=True)
 
     # Pre-fetch weekly lineups with starters for post-trade ROI calculation
     lineup_query = session.query(WeeklyLineup).filter(WeeklyLineup.is_starter.is_(True))
@@ -126,6 +150,13 @@ def get_trades_trends(
         # Fetch transaction items for this trade
         tx = tx_by_espn_id.get(trade.espn_transaction_id)
         items = items_by_tx_id.get(tx.id, []) if tx else []
+        if not items:
+            for cand_tx in transactions:
+                if cand_tx.related_espn_transaction_id == trade.espn_transaction_id:
+                    cand_items = items_by_tx_id.get(cand_tx.id, [])
+                    if cand_items:
+                        items = cand_items
+                        break
 
         # Split items by receiving team
         prop_assets_items = [i for i in items if i.to_team_id == prop_team.id]

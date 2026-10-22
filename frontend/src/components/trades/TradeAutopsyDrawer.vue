@@ -42,6 +42,8 @@ function getPositionClass(pos: string): string {
       return 'bg-amber-500/20 text-amber-300 border-amber-500/40';
     case 'K':
       return 'bg-purple-500/20 text-purple-300 border-purple-500/40';
+    case 'PICK':
+      return 'bg-violet-500/20 text-violet-300 border-violet-500/40';
     default:
       return 'bg-slate-700 text-slate-300 border-slate-600';
   }
@@ -92,7 +94,7 @@ const winnerSide = computed(() => {
           <span class="flex items-center gap-1.5 font-mono">
             <Calendar class="w-3.5 h-3.5 text-slate-400" />
             <span>Season {{ trade.season_year }}</span>
-            <span v-if="trade.week != null">• Week {{ trade.week }}</span>
+            <span v-if="trade.week != null">• {{ trade.week === 0 ? 'Preseason / Draft' : `Week ${trade.week}` }}</span>
           </span>
           <span v-if="trade.executed_at" class="flex items-center gap-1.5">
             <Clock class="w-3.5 h-3.5 text-slate-400" />

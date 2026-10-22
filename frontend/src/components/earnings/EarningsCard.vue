@@ -80,6 +80,31 @@ const totalTrophies = computed(() => {
               {{ entry.team_name }}
             </h3>
 
+            <!-- Championship Stars (Soccer / World Cup style: 1 star per title) -->
+            <div
+              v-if="entry.championships > 0"
+              class="inline-flex items-center gap-0.5 shrink-0"
+              :title="`${entry.championships}x Champion${entry.championship_years && entry.championship_years.length ? ` (${entry.championship_years.join(', ')})` : ''}`"
+            >
+              <span
+                v-for="yr in (entry.championship_years && entry.championship_years.length ? entry.championship_years : entry.championships)"
+                :key="yr"
+                class="text-amber-400 text-xs sm:text-sm leading-none drop-shadow-[0_0_5px_rgba(251,191,36,0.6)] select-none"
+              >
+                ★
+              </span>
+            </div>
+
+            <!-- Defending Champion -->
+            <span
+              v-if="entry.is_defending_champion"
+              class="inline-flex items-center gap-1 text-[9px] font-mono font-black uppercase px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/35 shrink-0 shadow-sm"
+              title="Defending Champion"
+            >
+              <span class="text-[10px]">🏆</span>
+              <span>DEFENDING CHAMP</span>
+            </span>
+
             <!-- Championship badge -->
             <span
               v-if="entry.championships > 0"

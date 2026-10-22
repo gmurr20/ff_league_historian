@@ -3,11 +3,20 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import type { StandingEntry } from '@/types/api';
 import TeamAvatar from '@/components/ui/TeamAvatar.vue';
 
-const props = defineProps<{
-  standings: StandingEntry[];
-  playoffTeamCount: number;
-  selectedTeamId?: number | null;
-}>();
+const props = withDefaults(
+  defineProps<{
+    standings: StandingEntry[];
+    playoffTeamCount: number;
+    regularSeasonWeeks?: number;
+    trophyName?: string;
+    selectedTeamId?: number | null;
+  }>(),
+  {
+    regularSeasonWeeks: 14,
+    trophyName: 'The Paulie',
+    selectedTeamId: null,
+  }
+);
 
 const emit = defineEmits<{
   (e: 'update:selectedTeamId', teamId: number | null): void;
@@ -152,6 +161,27 @@ const activeWeek = computed<number>(() => {
   return weeks.value[activeWeekIdx.value] ?? 1;
 });
 
+const activeWeekLabel = computed<string>(() => {
+  const w = activeWeek.value;
+  const regW = props.regularSeasonWeeks;
+  const maxW = weeks.value.length ? weeks.value[weeks.value.length - 1] : regW;
+  if (w <= regW) return `WEEK ${w}`;
+  if (w === maxW) return `WEEK ${w} · THE SHIP`;
+  if (w === maxW - 1) return `WEEK ${w} · SEMIFINALS`;
+  if (w === maxW - 2) return `WEEK ${w} · QUARTERFINALS`;
+  return `WEEK ${w} · PLAYOFFS`;
+});
+
+function formatScrubWeek(w: number): string {
+  const regW = props.regularSeasonWeeks;
+  const maxW = weeks.value.length ? weeks.value[weeks.value.length - 1] : regW;
+  if (w <= regW) return `W${w}`;
+  if (w === maxW) return '🏆 Final';
+  if (w === maxW - 1) return 'SF';
+  if (w === maxW - 2) return 'QF';
+  return `R${w - regW}`;
+}
+
 function stopAnimation() {
   if (rafId !== null) {
     cancelAnimationFrame(rafId);
@@ -278,7 +308,28 @@ watch(
   { immediate: true }
 );
 
+// Responsive mobile detection to expand vertical height on phones
+const isMobile = ref<boolean>(
+  typeof window !== 'undefined' ? window.innerWidth < 640 : false
+);
+
+let mediaQueryList: MediaQueryList | null = null;
+
+function handleMediaChange(e: MediaQueryListEvent | MediaQueryList) {
+  isMobile.value = e.matches;
+}
+
 onMounted(() => {
+  if (typeof window !== 'undefined') {
+    mediaQueryList = window.matchMedia('(max-width: 640px)');
+    isMobile.value = mediaQueryList.matches;
+    if (mediaQueryList.addEventListener) {
+      mediaQueryList.addEventListener('change', handleMediaChange);
+    } else {
+      mediaQueryList.addListener(handleMediaChange);
+    }
+  }
+
   if (typeof IntersectionObserver !== 'undefined' && chartRootRef.value) {
     observer = new IntersectionObserver(
       (entries) => {
@@ -296,6 +347,14 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopAnimation();
+  if (mediaQueryList) {
+    if (mediaQueryList.removeEventListener) {
+      mediaQueryList.removeEventListener('change', handleMediaChange);
+    } else {
+      mediaQueryList.removeListener(handleMediaChange);
+    }
+    mediaQueryList = null;
+  }
   if (observer) {
     observer.disconnect();
     observer = null;
@@ -304,15 +363,23 @@ onBeforeUnmount(() => {
 
 const teamCount = computed(() => Math.max(1, props.standings.length));
 
-// Compact widescreen SVG geometry so the full chart fits easily on a laptop screen at 100% zoom
+// Responsive SVG geometry: taller on mobile so logos and tags never overlap vertically,
+// compact widescreen on tablet/desktop for easy viewing.
 const svgWidth = 720;
-const svgHeight = computed(() => Math.max(220, teamCount.value * 22 + 36));
+const svgHeight = computed(() => {
+  const count = teamCount.value;
+  if (isMobile.value) {
+    // Generous vertical spacing on mobile: ~50px per rank in SVG coordinate space
+    return Math.max(420, count * 50 + 44);
+  }
+  return Math.max(220, count * 24 + 36);
+});
 const padLeft = 28;
-const padRight = 84;
+const padRight = computed(() => (isMobile.value ? 116 : 96));
 const padTop = 18;
 const padBottom = 22;
 
-const plotWidth = computed(() => svgWidth - padLeft - padRight);
+const plotWidth = computed(() => svgWidth - padLeft - padRight.value);
 const plotHeight = computed(() => svgHeight.value - padTop - padBottom);
 
 function xForWeekIndex(idx: number): number {
@@ -507,12 +574,13 @@ const singleSpotlight = computed<TeamSeries | null>(() => {
     <!-- Top Header & Playback Controls -->
     <div class="px-3.5 py-2.5 border-b border-slate-800/80 flex items-center justify-between gap-2">
       <div class="flex items-center gap-2 min-w-0">
-        <span class="text-[10px] font-mono uppercase tracking-widest text-amber-400 font-bold">
-          STANDINGS RACE
+        <span class="inline-flex items-center gap-1.5 text-xs sm:text-sm font-black tracking-tight text-amber-400 uppercase">
+          <span class="text-sm">🏆</span>
+          <span>Race for {{ props.trophyName }}</span>
         </span>
         <span class="text-slate-700">·</span>
-        <span class="text-xs font-mono font-bold text-slate-200">
-          WEEK {{ activeWeek }}
+        <span class="text-xs font-mono font-bold text-slate-300">
+          {{ activeWeekLabel }}
         </span>
       </div>
 
@@ -645,8 +713,16 @@ const singleSpotlight = computed<TeamSeries | null>(() => {
           class="w-2.5 h-2.5 rounded-full shrink-0"
           :style="{ backgroundColor: singleSpotlight.color }"
         ></span>
-        <span class="text-xs font-bold text-slate-100 truncate">
-          {{ singleSpotlight.team.team_name }}
+        <span class="text-xs font-bold text-slate-100 truncate flex items-center gap-1">
+          <span v-if="singleSpotlight.team.is_defending_champion" class="text-amber-400 text-xs shrink-0" :title="`Defending ${props.trophyName} Champion`">🏆</span>
+          <span class="truncate">{{ singleSpotlight.team.team_name }}</span>
+          <span
+            v-if="singleSpotlight.team.championships > 0"
+            class="text-amber-400 text-xs leading-none shrink-0"
+            :title="`${singleSpotlight.team.championships}x Champion`"
+          >
+            {{ '★'.repeat(Math.min(singleSpotlight.team.championships, 3)) }}
+          </span>
         </span>
         <span class="text-[10px] font-mono text-slate-400 shrink-0">
           W{{ activeWeek }}: #{{ singleSpotlight.activeNode?.rank ?? singleSpotlight.team.rank }}
@@ -686,7 +762,7 @@ const singleSpotlight = computed<TeamSeries | null>(() => {
           :viewBox="`0 0 ${svgWidth} ${svgHeight}`"
           class="w-full h-full block overflow-visible"
           role="img"
-          aria-label="Weekly Standings Race Chart"
+          :aria-label="`Race for ${props.trophyName} Trajectory Chart`"
         >
           <defs>
             <!-- Continuous playhead clip path so lines draw right out of the moving team avatars -->
@@ -771,10 +847,10 @@ const singleSpotlight = computed<TeamSeries | null>(() => {
               :x="xForWeekIndex(wIdx)"
               :y="svgHeight - 8"
               text-anchor="middle"
-              class="font-mono text-[10px] font-bold"
+              class="font-mono text-[9px] font-bold"
               :fill="wIdx === activeWeekIdx ? '#f8fafc' : '#64748b'"
             >
-              W{{ w }}
+              {{ formatScrubWeek(w) }}
             </text>
           </g>
 
@@ -889,7 +965,13 @@ const singleSpotlight = computed<TeamSeries | null>(() => {
           <!-- Circular Team Logo with Team Color Ring (Centered at headX, headY) -->
           <div
             class="w-full h-full rounded-full p-[1.5px] shadow-md transition-transform group-hover:scale-110"
-            :class="isTeamSpotlighted(s.team.team_id) ? 'scale-125 ring-2 ring-white/80' : ''"
+            :class="[
+              isTeamSpotlighted(s.team.team_id)
+                ? 'scale-125 ring-2 ring-white/80'
+                : s.team.is_defending_champion
+                ? 'ring-2 ring-amber-400/90 shadow-[0_0_8px_rgba(251,191,36,0.6)]'
+                : '',
+            ]"
             :style="{ backgroundColor: s.color }"
           >
             <TeamAvatar
@@ -914,7 +996,15 @@ const singleSpotlight = computed<TeamSeries | null>(() => {
             }"
           >
             <span class="text-slate-400">#{{ s.activeNode?.rank }}</span>
+            <span v-if="s.team.is_defending_champion" class="hidden sm:inline text-amber-400 text-[10px]" title="Defending Champion">🏆</span>
             <span class="text-slate-100">{{ s.abbrev }}</span>
+            <span
+              v-if="s.team.championships > 0"
+              class="hidden sm:inline text-amber-400 text-[8px] leading-none select-none"
+              :title="`${s.team.championships}x Champion`"
+            >
+              {{ '★'.repeat(Math.min(s.team.championships, 3)) }}
+            </span>
             <span
               v-if="s.activeNode && s.activeNode.rankDelta > 0"
               class="text-[8px] text-emerald-400 font-black"
@@ -952,7 +1042,7 @@ const singleSpotlight = computed<TeamSeries | null>(() => {
           "
           @click="selectWeekIdx(wIdx)"
         >
-          W{{ w }}
+          {{ formatScrubWeek(w) }}
         </button>
       </div>
     </div>
@@ -968,10 +1058,13 @@ const singleSpotlight = computed<TeamSeries | null>(() => {
           :class="
             isTeamSpotlighted(s.team.team_id)
               ? 'bg-slate-800 text-white border-slate-500 font-bold shadow-sm'
+              : s.team.is_defending_champion
+              ? 'bg-amber-950/30 text-amber-200 border-amber-500/40 hover:border-amber-400'
               : hasSpotlight
               ? 'bg-slate-900/40 text-slate-500 border-slate-800/60 opacity-55 hover:opacity-100'
               : 'bg-slate-900/80 text-slate-300 border-slate-800/80 hover:border-slate-700'
           "
+          :title="s.team.is_defending_champion ? `${s.team.team_name} (Defending ${props.trophyName} Champion)` : s.team.team_name"
           @click="toggleTeamSpotlight(s.team.team_id)"
         >
           <span
@@ -987,7 +1080,16 @@ const singleSpotlight = computed<TeamSeries | null>(() => {
             />
           </span>
           <span class="text-slate-500 shrink-0">#{{ s.activeNode?.rank ?? s.team.rank }}</span>
-          <span class="truncate">{{ s.abbrev }}</span>
+          <span class="truncate flex items-center gap-0.5">
+            <span v-if="s.team.is_defending_champion" class="text-[9px] text-amber-400 shrink-0">🏆</span>
+            <span class="truncate">{{ s.abbrev }}</span>
+            <span
+              v-if="s.team.championships > 0"
+              class="text-amber-400 text-[8px] leading-none shrink-0"
+            >
+              {{ '★'.repeat(Math.min(s.team.championships, 3)) }}
+            </span>
+          </span>
         </button>
       </div>
     </div>

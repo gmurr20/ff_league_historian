@@ -124,7 +124,7 @@ const auditTransactions = computed(() => transactionsSummary.value?.transactions
           Historical Transaction Notice
         </h3>
         <p class="text-xs text-amber-200/90 leading-relaxed">
-          ESPN did not preserve FAAB bids or waiver logs for seasons prior to 2018. Bidding war receipts and waiver efficiency metrics are unavailable for Season {{ selectedSeason }}.
+          ESPN does not preserve FAAB bids or waiver transaction logs for completed historical seasons once archived. Contested bidding war receipts and waiver efficiency metrics are unavailable for Season {{ selectedSeason }}.
         </p>
       </div>
     </div>

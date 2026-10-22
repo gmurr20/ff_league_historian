@@ -15,10 +15,10 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'Earnings' },
   },
   {
-    path: '/head-to-head',
-    name: 'head-to-head',
-    component: () => import('@/views/HeadToHeadView.vue'),
-    meta: { title: 'Head-to-Head' },
+    path: '/hall-of-fame',
+    name: 'hall-of-fame',
+    component: () => import('@/views/HallOfFameView.vue'),
+    meta: { title: 'Hall of Fame' },
   },
   {
     path: '/trades',

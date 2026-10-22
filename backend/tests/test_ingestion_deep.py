@@ -29,6 +29,7 @@ from backend.jobs.deep_parsers import (
     normalize_position,
     normalize_pro_team,
     normalize_slot_position,
+    upsert_draft_picks_from_payload,
     upsert_players_from_payload,
     upsert_transactions_from_payload,
     upsert_weekly_lineups_from_payload,
@@ -41,6 +42,7 @@ from backend.jobs.parsers import (
     upsert_teams_from_payload,
 )
 from backend.jobs.sync_weekly import sync_weekly
+from backend.models.draft import DraftPick
 from backend.models.lineup import WeeklyLineup
 from backend.models.matchup import Matchup
 from backend.models.player import Player
@@ -480,3 +482,68 @@ def test_scoped_backfill_and_weekly_sync_execution(db_session: Session) -> None:
     # Week 8 transaction was ingested, but week 3 transaction was NOT ingested!
     assert db_session.query(Transaction).filter_by(espn_transaction_id="tx_2024_w08_fa").first() is not None
     assert db_session.query(Transaction).filter_by(espn_transaction_id="tx_2024_w03_old").first() is None
+
+
+def test_draft_picks_parsing_and_resolution(db_session: Session) -> None:
+    """Verifies draft pick extraction, keeper flags, player resolution, and idempotency."""
+    f2023 = load_fixture("espn_deep_2023.json")
+    mgr_map = resolve_or_upsert_managers(db_session, f2023)
+    season = upsert_season_from_payload(db_session, f2023)
+    team_map = upsert_teams_from_payload(db_session, season, f2023, mgr_map)
+
+    # Simulated draftDetail payload with 3 picks
+    draft_payload = {
+        "seasonId": 2023,
+        "draftDetail": {
+            "drafted": True,
+            "inProgress": False,
+            "picks": [
+                {
+                    "overallPickNumber": 1,
+                    "roundId": 1,
+                    "roundPickNumber": 1,
+                    "teamId": 1,
+                    "playerId": 4362628,
+                    "bidAmount": 0,
+                    "keeper": False,
+                    "lineupSlotId": 4,
+                    "autoDraftTypeId": 0,
+                },
+                {
+                    "overallPickNumber": 2,
+                    "roundId": 1,
+                    "roundPickNumber": 2,
+                    "teamId": 2,
+                    "playerId": 9999999,  # Unresolved player to test fallback
+                    "bidAmount": 15,
+                    "keeper": True,
+                    "lineupSlotId": 2,
+                    "autoDraftTypeId": 0,
+                },
+            ],
+        },
+    }
+
+    # First run: parses both picks and creates fallback for player 9999999
+    picks = upsert_draft_picks_from_payload(db_session, season, draft_payload, team_map)
+    assert len(picks) == 2
+
+    p1 = db_session.query(DraftPick).filter_by(season_year=2023, overall_pick=1).first()
+    assert p1 is not None
+    assert p1.round == 1
+    assert p1.round_pick == 1
+    assert p1.team_id == team_map[1].id
+    assert p1.player_id == 4362628
+    assert p1.is_keeper is False
+    assert p1.bid_amount == 0
+
+    p2 = db_session.query(DraftPick).filter_by(season_year=2023, overall_pick=2).first()
+    assert p2 is not None
+    assert p2.is_keeper is True
+    assert p2.bid_amount == 15
+    assert db_session.get(Player, 9999999) is not None
+
+    # Idempotent re-run
+    picks_again = upsert_draft_picks_from_payload(db_session, season, draft_payload, team_map)
+    assert len(picks_again) == 2
+    assert db_session.query(DraftPick).filter_by(season_year=2023).count() == 2

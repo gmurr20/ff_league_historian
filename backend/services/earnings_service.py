@@ -18,6 +18,7 @@ from backend.models.earnings import EarningsLedger
 from backend.models.manager import Manager
 from backend.models.season import Season
 from backend.models.team import Team
+from backend.services.standings_service import _resolve_historical_accolades
 
 
 def get_earnings_leaderboard(
@@ -46,17 +47,8 @@ def get_earnings_leaderboard(
     for team in all_teams:
         manager_teams[team.manager_id].append(team)
 
-    # Collect distinct managers to include
+    # Collect distinct managers to include (managers who have franchises or earnings entries)
     manager_ids = set(manager_teams.keys())
-    if season_filter is None:
-        # Include all managers in the system
-        all_managers = session.query(Manager).all()
-        for mgr in all_managers:
-            manager_ids.add(mgr.id)
-    else:
-        all_managers = session.query(Manager).filter(Manager.id.in_(manager_ids)).all()
-
-    manager_map = {m.id: m for m in all_managers}
 
     # Query relevant earnings ledger entries
     ledger_query = session.query(EarningsLedger)
@@ -64,10 +56,38 @@ def get_earnings_leaderboard(
         ledger_query = ledger_query.filter(EarningsLedger.season_year == season_filter)
     ledger_entries = ledger_query.all()
 
+    for entry in ledger_entries:
+        manager_ids.add(entry.manager_id)
+
+    all_managers = session.query(Manager).filter(Manager.id.in_(manager_ids)).all()
+    manager_map = {m.id: m for m in all_managers}
+
     # Group ledger entries by (manager_id, season_year)
     ledger_by_manager_season: dict[tuple[int, int], list[EarningsLedger]] = defaultdict(list)
     for entry in ledger_entries:
         ledger_by_manager_season[(entry.manager_id, entry.season_year)].append(entry)
+
+    # Resolve historical titles, podiums, and defending champion
+    (
+        champions_by_year,
+        runner_ups_by_year,
+        third_places_by_year,
+        scoring_leaders_by_year,
+    ) = _resolve_historical_accolades(session)
+
+    # Defending champion is the champion of the most recent completed season prior to this season
+    if season_filter is not None:
+        prior_completed_years = [
+            yr for yr in champions_by_year.keys() if yr < season_filter
+        ]
+    else:
+        prior_completed_years = list(champions_by_year.keys())
+    defending_champ_mgr_id: int | None = None
+    if prior_completed_years:
+        last_champ_year = max(prior_completed_years)
+        champ_mids = champions_by_year.get(last_champ_year, set())
+        if champ_mids:
+            defending_champ_mgr_id = next(iter(champ_mids))
 
     leaderboard: list[dict[str, Any]] = []
 
@@ -85,6 +105,7 @@ def get_earnings_leaderboard(
         season_breakdowns: list[dict[str, Any]] = []
         mgr_total_weekly = 0.0
         mgr_total_podium = 0.0
+        mgr_total_points_title = 0.0
         mgr_weekly_wins = 0
         mgr_weekly_ties = 0
         mgr_high_scores = 0
@@ -101,6 +122,7 @@ def get_earnings_leaderboard(
 
             s_weekly = 0.0
             s_podium = 0.0
+            s_points_title = 0.0
             s_wins = 0
             s_ties = 0
             s_high_scores = 0
@@ -127,13 +149,14 @@ def get_earnings_leaderboard(
                     s_weekly += amt
                     s_bonus_cash += amt
                     s_high_score_losses += 1
+                elif e.entry_type == "REGULAR_SEASON_MOST_POINTS":
+                    s_points_title += amt
                 elif e.entry_type in (
                     "CHAMPION",
                     "RUNNER_UP",
                     "THIRD_PLACE",
                     "FOURTH_PLACE",
                     "FIFTH_PLACE",
-                    "REGULAR_SEASON_MOST_POINTS",
                 ):
                     s_podium += amt
                     if e.entry_type == "CHAMPION":
@@ -161,12 +184,14 @@ def get_earnings_leaderboard(
 
             s_weekly = round(s_weekly, 2)
             s_podium = round(s_podium, 2)
-            s_total = round(s_weekly + s_podium, 2)
+            s_points_title = round(s_points_title, 2)
+            s_total = round(s_weekly + s_podium + s_points_title, 2)
             s_wins_cash = round(s_wins_cash, 2)
             s_bonus_cash = round(s_bonus_cash, 2)
 
             mgr_total_weekly += s_weekly
             mgr_total_podium += s_podium
+            mgr_total_points_title += s_points_title
             mgr_weekly_wins += s_wins
             mgr_weekly_ties += s_ties
             mgr_high_scores += s_high_scores
@@ -198,6 +223,7 @@ def get_earnings_leaderboard(
                     "logo_url": team.logo_url or mgr.avatar_url,
                     "weekly_earnings": s_weekly,
                     "podium_earnings": s_podium,
+                    "points_title_cash": s_points_title,
                     "total_earnings": s_total,
                     "weekly_wins": s_wins,
                     "weekly_ties": s_ties,
@@ -217,13 +243,50 @@ def get_earnings_leaderboard(
 
         mgr_total_weekly = round(mgr_total_weekly, 2)
         mgr_total_podium = round(mgr_total_podium, 2)
-        mgr_total_earnings = round(mgr_total_weekly + mgr_total_podium, 2)
+        mgr_total_points_title = round(mgr_total_points_title, 2)
+        mgr_total_earnings = round(
+            mgr_total_weekly + mgr_total_podium + mgr_total_points_title, 2
+        )
         latest_team = teams_for_mgr[0] if teams_for_mgr else None
 
         # Resolve primary bounty receipts (from the current/selected season if filtered, else latest season)
         primary_bounties: list[dict[str, Any]] = []
         if season_breakdowns:
             primary_bounties = season_breakdowns[0].get("bounty_receipts", [])
+
+        # Resolve manager's historical championship years (up to season_filter if filtered, else all-time)
+        if season_filter is not None:
+            mgr_champ_years = sorted(
+                yr
+                for yr, mids in champions_by_year.items()
+                if (
+                    mgr.id in mids
+                    or any(
+                        t.co_manager_id == mgr.id
+                        for t in manager_teams.get(mgr.id, [])
+                        if t.season_year == yr
+                    )
+                )
+                and yr <= season_filter
+            )
+        else:
+            mgr_champ_years = sorted(
+                yr
+                for yr, mids in champions_by_year.items()
+                if (
+                    mgr.id in mids
+                    or any(
+                        t.co_manager_id == mgr.id
+                        for t in manager_teams.get(mgr.id, [])
+                        if t.season_year == yr
+                    )
+                )
+            )
+
+        is_defending_champ = bool(
+            defending_champ_mgr_id is not None
+            and mgr.id == defending_champ_mgr_id
+        )
 
         leaderboard.append(
             {
@@ -238,6 +301,7 @@ def get_earnings_leaderboard(
                 "total_earnings": mgr_total_earnings,
                 "weekly_earnings": mgr_total_weekly,
                 "podium_earnings": mgr_total_podium,
+                "points_title_cash": mgr_total_points_title,
                 "weekly_wins_count": mgr_weekly_wins,
                 "weekly_ties_count": mgr_weekly_ties,
                 "weekly_wins_cash": round(mgr_wins_cash, 2),
@@ -245,7 +309,9 @@ def get_earnings_leaderboard(
                 "weekly_high_scores_count": mgr_high_scores,
                 "weekly_high_score_losses_count": mgr_high_score_losses,
                 "bounty_receipts": primary_bounties,
-                "championships": mgr_championships,
+                "championships": len(mgr_champ_years),
+                "championship_years": mgr_champ_years,
+                "is_defending_champion": is_defending_champ,
                 "runner_ups": mgr_runner_ups,
                 "third_places": mgr_third_places,
                 "seasons_played": len(teams_for_mgr),
@@ -360,9 +426,48 @@ def get_earnings_leaderboard(
                 }
             )
 
+    # Regular season most points winner (season-level prize)
+    points_winner: dict[str, Any] | None = None
+    if target_year is not None:
+        pts_entries = (
+            session.query(EarningsLedger)
+            .filter(
+                EarningsLedger.season_year == target_year,
+                EarningsLedger.entry_type == "REGULAR_SEASON_MOST_POINTS",
+            )
+            .all()
+        )
+        if pts_entries:
+            pts_teams = [session.get(Team, e.team_id) for e in pts_entries if e.team_id]
+            pts_mgrs = [session.get(Manager, e.manager_id) for e in pts_entries if e.manager_id]
+            pts_score = _extract_score(pts_entries[0].description or "")
+            pts_amount = sum(float(e.amount) for e in pts_entries)
+            pts_team_name = " & ".join(t.team_name for t in pts_teams if t)
+            pts_mgr_name = " & ".join(m.display_name for m in pts_mgrs if m)
+            pts_avatar = (
+                pts_teams[0].logo_url
+                if pts_teams and pts_teams[0].logo_url
+                else (pts_mgrs[0].avatar_url if pts_mgrs else None)
+            )
+            points_winner = {
+                "manager_id": pts_entries[0].manager_id,
+                "manager_name": pts_mgr_name,
+                "team_id": pts_entries[0].team_id,
+                "team_name": pts_team_name,
+                "avatar_url": pts_avatar,
+                "points": pts_score,
+                "amount": round(pts_amount, 2),
+                "is_tie": len(pts_entries) > 1,
+                "description": (
+                    pts_entries[0].description
+                    or f"{target_year} Regular Season Most Points"
+                ),
+            }
+
     return {
         "season_filter": season_filter,
         "weekly_win_value": weekly_win_value,
         "leaderboard": leaderboard,
         "weekly_nuanced_payouts": weekly_nuanced_payouts,
+        "regular_season_points_winner": points_winner,
     }

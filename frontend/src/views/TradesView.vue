@@ -166,7 +166,7 @@ const activeTraders = computed(() => tradeTrends.value?.active_traders ?? []);
           Historical Transaction Notice
         </h3>
         <p class="text-xs text-amber-200/90 leading-relaxed">
-          ESPN did not preserve transaction logs for seasons prior to 2018. Historical trade data and realized starter points are unavailable for Season {{ effectiveSeasonFilter }}.
+          ESPN does not preserve transaction logs for completed historical seasons once archived. Historical trade data and realized starter points are unavailable for Season {{ effectiveSeasonFilter }}.
         </p>
         <button
           type="button"

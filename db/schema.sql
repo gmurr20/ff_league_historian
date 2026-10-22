@@ -2,7 +2,7 @@
 -- Fantasy Football League Historian — Canonical PostgreSQL 16 Schema
 -- =============================================================================
 -- Invariant: Dual-dialect compatibility with SQLite 3.9+ local fallback.
--- Invariant: Maximal Upfront ESPN Data Strategy (12 core tables).
+-- Invariant: Maximal Upfront ESPN Data Strategy (13 core tables).
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
@@ -327,3 +327,30 @@ CREATE INDEX IF NOT EXISTS idx_sync_runs_status ON sync_runs(status);
 CREATE INDEX IF NOT EXISTS idx_sync_runs_started_at ON sync_runs(started_at);
 
 COMMENT ON TABLE sync_runs IS 'Ingestion audit log tracking run types, affected windows, and outcome status.';
+
+-- -----------------------------------------------------------------------------
+-- 13. Draft Picks (The Full Draft Board)
+-- Annual draft board containing ordered selections, auction amounts, and keeper flags.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS draft_picks (
+    id SERIAL PRIMARY KEY,
+    season_year INT NOT NULL REFERENCES seasons(season_year) ON DELETE CASCADE,
+    round INT NOT NULL,
+    round_pick INT NOT NULL,
+    overall_pick INT NOT NULL,
+    team_id INT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    player_id INT NOT NULL REFERENCES players(espn_player_id),
+    bid_amount INT NOT NULL DEFAULT 0,
+    nominating_team_id INT REFERENCES teams(id) ON DELETE SET NULL,
+    is_keeper BOOLEAN NOT NULL DEFAULT FALSE,
+    lineup_slot_id INT,
+    auto_draft_type_id INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_draft_picks_season_overall UNIQUE (season_year, overall_pick)
+);
+
+CREATE INDEX IF NOT EXISTS idx_draft_picks_season_year ON draft_picks(season_year);
+CREATE INDEX IF NOT EXISTS idx_draft_picks_team_id ON draft_picks(team_id);
+CREATE INDEX IF NOT EXISTS idx_draft_picks_player_id ON draft_picks(player_id);
+
+COMMENT ON TABLE draft_picks IS 'Annual draft board containing ordered selections, auction amounts, and keeper flags.';

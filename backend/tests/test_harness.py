@@ -84,7 +84,7 @@ def test_api_contracts_specification() -> None:
         "/api/v1/meta",
         "/api/v1/earnings/leaderboard",
         "/api/v1/standings/current",
-        "/api/v1/history/head-to-head",
+        "/api/v1/hall-of-fame",
         "/api/v1/trades/trends",
         "/api/v1/transactions/summary",
     ]

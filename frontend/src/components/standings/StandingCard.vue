@@ -4,11 +4,17 @@ import type { StandingEntry } from '@/types/api';
 import TeamAvatar from '@/components/ui/TeamAvatar.vue';
 import { Trophy, Medal, ChevronRight, Flame, DollarSign, Wallet } from 'lucide-vue-next';
 
-const props = defineProps<{
-  standing: StandingEntry;
-  isCompleted: boolean;
-  displayRank: number;
-}>();
+const props = withDefaults(
+  defineProps<{
+    standing: StandingEntry;
+    isCompleted: boolean;
+    displayRank: number;
+    trophyName?: string;
+  }>(),
+  {
+    trophyName: 'The Paulie',
+  }
+);
 
 defineEmits<{
   (e: 'click'): void;
@@ -97,8 +103,9 @@ const luckInfo = computed(() => {
 // Lineup efficiency percentage
 const efficiencyFormatted = computed(() => {
   const eff = props.standing.lineup_efficiency;
+  if (!eff || eff <= 0) return '—';
   const pct = eff <= 1 ? eff * 100 : eff;
-  return `${pct.toFixed(1)}%`;
+  return `${Math.min(100, Math.max(0, pct)).toFixed(1)}%`;
 });
 
 // Podium & Seed styles
@@ -199,6 +206,31 @@ const managerSubtitle = computed(() => {
             <h3 class="text-sm sm:text-base font-bold text-slate-100 truncate tracking-tight">
               {{ standing.team_name }}
             </h3>
+
+            <!-- Championship Stars (Soccer / World Cup style: 1 star per title) -->
+            <div
+              v-if="standing.championships > 0"
+              class="inline-flex items-center gap-0.5 shrink-0"
+              :title="`${standing.championships}x Champion (${standing.championship_years.join(', ')})`"
+            >
+              <span
+                v-for="yr in standing.championship_years"
+                :key="yr"
+                class="text-amber-400 text-xs sm:text-sm leading-none drop-shadow-[0_0_5px_rgba(251,191,36,0.6)] select-none"
+              >
+                ★
+              </span>
+            </div>
+
+            <!-- Defending Champion (Previous Season Champion) -->
+            <span
+              v-if="standing.is_defending_champion"
+              class="inline-flex items-center gap-1 text-[9px] font-mono font-black uppercase px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/35 shrink-0 shadow-sm"
+              :title="`Defending Champion — Current Holder of ${props.trophyName}`"
+            >
+              <span class="text-[10px]">🏆</span>
+              <span>DEFENDING CHAMP</span>
+            </span>
 
             <!-- Podium or Seed badge -->
             <span
@@ -304,7 +336,7 @@ const managerSubtitle = computed(() => {
         <span class="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Efficiency</span>
         <div class="font-mono text-slate-300 tabular-nums">
           <span class="text-slate-200 font-semibold">{{ efficiencyFormatted }}</span>
-          <span class="text-[10px] text-slate-500 ml-1">({{ standing.bench_points.toFixed(0) }} bch)</span>
+          <span v-if="standing.optimal_points_for > 0" class="text-[10px] text-slate-500 ml-1">({{ standing.bench_points.toFixed(0) }} bch)</span>
         </div>
       </div>
     </div>

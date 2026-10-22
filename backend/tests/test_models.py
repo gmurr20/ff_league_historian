@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from backend.database import create_db_engine, get_session, init_db
 from backend.models import (
+    DraftPick,
     EarningsLedger,
     Manager,
     Matchup,
@@ -196,7 +197,20 @@ def test_all_12_models_instantiation(session_factory: sessionmaker[Session]) -> 
         )
         session.add(sync_run)
 
-    # Verification: check all 12 tables have records
+        # 13. DraftPick
+        draft_pick = DraftPick(
+            season_year=2023,
+            round=1,
+            round_pick=1,
+            overall_pick=1,
+            team_id=team1.id,
+            player_id=player.espn_player_id,
+            bid_amount=0,
+            is_keeper=False,
+        )
+        session.add(draft_pick)
+
+    # Verification: check all tables have records
     with get_session(session_factory) as session:
         assert session.query(Season).count() == 1
         assert session.query(Manager).count() == 2
@@ -204,6 +218,7 @@ def test_all_12_models_instantiation(session_factory: sessionmaker[Session]) -> 
         assert session.query(Player).count() == 1
         assert session.query(Matchup).count() == 1
         assert session.query(WeeklyLineup).count() == 1
+        assert session.query(DraftPick).count() == 1
         assert session.query(Transaction).count() == 1
         assert session.query(TransactionItem).count() == 1
         assert session.query(Trade).count() == 1
@@ -404,6 +419,7 @@ def test_schema_sql_ddl_completeness() -> None:
         "trades",
         "earnings_ledger",
         "sync_runs",
+        "draft_picks",
     ]
     for table in expected_tables:
         assert f"CREATE TABLE IF NOT EXISTS {table}" in ddl, f"Missing table definition: {table}"
@@ -414,6 +430,7 @@ def test_schema_sql_ddl_completeness() -> None:
         "UNIQUE (season_year, week, espn_matchup_id)",
         "UNIQUE (season_year, week, team_id, player_id)",
         "UNIQUE (season_year, espn_transaction_id)",
+        "UNIQUE (season_year, overall_pick)",
         "UNIQUE NULLS NOT DISTINCT (manager_id, season_year, week, entry_type)",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_earnings_weekly_single",
     ]

@@ -142,7 +142,7 @@ def test_e2e_backfill_to_weekly_sync_to_api_responses() -> None:
         "/api/v1/meta",
         "/api/v1/earnings/leaderboard",
         "/api/v1/standings/current",
-        "/api/v1/history/head-to-head",
+        "/api/v1/hall-of-fame",
         "/api/v1/trades/trends",
         "/api/v1/transactions/summary",
     ]
@@ -263,28 +263,19 @@ def test_e2e_api_response_keys_match_typescript_contracts() -> None:
     assert len(standings_json["standings"][0]["weekly_history"]) > 0
     assert_interface(standings_json["standings"][0]["weekly_history"][0], "WeeklyStandingPoint")
 
-    # 5. Head-to-Head endpoint (with pairwise query) -> HeadToHeadResponse + H2HPairDetail
-    res_h2h = client.get("/api/v1/history/head-to-head?managerA=1&managerB=2")
-    assert res_h2h.status_code == 200
-    h2h_json = res_h2h.get_json()
-    assert_interface(h2h_json, "HeadToHeadResponse")
-    assert len(h2h_json["managers"]) > 0
-    assert_interface(h2h_json["managers"][0], "H2HManagerRef")
-    assert len(h2h_json["matrix"]) > 0
-    assert_interface(h2h_json["matrix"][0], "H2HMatrixEntry")
-
-    pair = h2h_json["pair_detail"]
-    assert pair is not None
-    assert_interface(pair, "H2HPairDetail")
-    assert_interface(pair["manager_a"], "H2HManagerRef")
-    assert_interface(pair["manager_b"], "H2HManagerRef")
-    assert_interface(pair["regular_season"], "H2HRecordSplit")
-    assert_interface(pair["playoffs"], "H2HRecordSplit")
-    assert_interface(pair["combined"], "H2HCombinedSplit")
-    assert_interface(pair["current_streak"], "H2HStreak")
-    assert_interface(pair["biggest_blowout"], "H2HGameHighlight")
-    assert len(pair["matchups"]) > 0
-    assert_interface(pair["matchups"][0], "H2HMatchupGame")
+    # 5. Hall of Fame endpoint -> HallOfFameResponse + HallOfFameBanner + FeaturedChampion
+    res_hof = client.get("/api/v1/hall-of-fame")
+    assert res_hof.status_code == 200
+    hof_json = res_hof.get_json()
+    assert_interface(hof_json, "HallOfFameResponse")
+    assert len(hof_json["banners"]) > 0
+    assert_interface(hof_json["banners"][0], "HallOfFameBanner")
+    champ_meta = hof_json["featured_champion"]
+    assert champ_meta is not None
+    assert_interface(champ_meta, "FeaturedChampion")
+    assert_interface(champ_meta["championship_matchup"], "ChampionshipMatchupDetail")
+    assert len(champ_meta["top_players"]) == 4
+    assert_interface(champ_meta["top_players"][0], "HallOfFameHeroPlayer")
 
     # 6. Trades endpoint -> TradesTrendsResponse + TopTradePartner + ActiveTrader + TradeDetail
     res_trades = client.get("/api/v1/trades/trends")

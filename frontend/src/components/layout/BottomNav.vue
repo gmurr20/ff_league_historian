@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router';
-import { Trophy, DollarSign, Swords, ArrowLeftRight, Zap } from 'lucide-vue-next';
+import { Trophy, DollarSign, Award, ArrowLeftRight, Zap } from 'lucide-vue-next';
 
 interface NavItem {
   name: string;
@@ -12,7 +12,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { name: 'standings', label: 'Standings', to: '/', icon: Trophy },
   { name: 'earnings', label: 'Earnings', to: '/earnings', icon: DollarSign },
-  { name: 'head-to-head', label: 'Rivalries', to: '/head-to-head', icon: Swords },
+  { name: 'hall-of-fame', label: 'Hall of Fame', to: '/hall-of-fame', icon: Award },
   { name: 'trades', label: 'Trades', to: '/trades', icon: ArrowLeftRight },
   { name: 'waivers', label: 'Waivers', to: '/waivers', icon: Zap },
 ];
@@ -55,7 +55,7 @@ function isActive(to: string): boolean {
 
         <!-- Label -->
         <span
-          class="text-[10px] tracking-tight font-medium mt-1 truncate"
+          class="text-[9.5px] sm:text-[10px] tracking-tight font-medium mt-1 truncate max-w-full"
           :class="isActive(item.to) ? 'font-semibold text-emerald-400' : 'text-slate-400'"
         >
           {{ item.label }}

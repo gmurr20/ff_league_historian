@@ -5,22 +5,105 @@ import { fetchStandings } from '@/api/client';
 import type { StandingEntry, StandingsResponse } from '@/types/api';
 import WeeklyTrajectoryChart from '@/components/standings/WeeklyTrajectoryChart.vue';
 import StandingsDetailDrawer from '@/components/standings/StandingsDetailDrawer.vue';
+import PlayoffBracket from '@/components/standings/PlayoffBracket.vue';
 import TeamAvatar from '@/components/ui/TeamAvatar.vue';
 import LoadingState from '@/components/ui/LoadingState.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 
-const { selectedSeason } = useLeagueMeta();
+const { selectedSeason, meta } = useLeagueMeta();
 
 const standingsData = ref<StandingsResponse | null>(null);
 const loading = ref<boolean>(false);
 const error = ref<string | null>(null);
+
+// Dynamic Trophy / Championship Title (generic across leagues, defaulting to "The Paulie" if not set)
+const trophyTitle = computed<string>(() => {
+  const envTrophy = (import.meta.env.VITE_TROPHY_NAME as string | undefined)?.trim();
+  if (envTrophy) return envTrophy;
+  const league = meta.value?.league_name || '';
+  if (league.toLowerCase().includes('paulie')) return 'The Paulie';
+  return 'The Paulie';
+});
+
+// All-Time vs Single Season Mode
+const isAllTime = computed<boolean>(() => {
+  return selectedSeason.value === null || standingsData.value?.season_year === null;
+});
+
+// Franchise status filter in All-Time mode: 'active' vs 'all' (default: 'active' first)
+type InactiveFilterMode = 'active' | 'all';
+const inactiveFilter = ref<InactiveFilterMode>('active');
+
+const totalFranchisesCount = computed<number>(() => {
+  return standingsData.value?.standings.length ?? 0;
+});
+
+const activeStandings = computed<StandingEntry[]>(() => {
+  if (!standingsData.value?.standings) return [];
+  return standingsData.value.standings.filter((s) => s.is_active);
+});
+
+const inactiveStandings = computed<StandingEntry[]>(() => {
+  if (!standingsData.value?.standings) return [];
+  return standingsData.value.standings.filter((s) => !s.is_active);
+});
+
+const activeFranchisesCount = computed<number>(() => {
+  return activeStandings.value.length;
+});
+
+// Maps each active team to their official rank among active members (1..12)
+const activeRankMap = computed<Map<number, number>>(() => {
+  const map = new Map<number, number>();
+  activeStandings.value.forEach((s, idx) => {
+    map.set(s.team_id, idx + 1);
+  });
+  return map;
+});
+
+// Maps each active team to their power rank among active members (1..12)
+const activePowerRankMap = computed<Map<number, number>>(() => {
+  const map = new Map<number, number>();
+  const sorted = [...activeStandings.value].sort((a, b) => {
+    return (
+      b.all_play_win_pct - a.all_play_win_pct ||
+      b.median_wins - a.median_wins ||
+      b.points_for - a.points_for
+    );
+  });
+  sorted.forEach((s, idx) => {
+    map.set(s.team_id, idx + 1);
+  });
+  return map;
+});
+
+// Returns contextual official rank: in 'active' mode returns 1..12, in 'all' mode returns overall rank (1..19)
+function getTeamRank(s: StandingEntry): number {
+  if (isAllTime.value && inactiveFilter.value === 'active') {
+    return activeRankMap.value.get(s.team_id) ?? s.rank;
+  }
+  return s.rank;
+}
+
+// Returns contextual power rank: in 'active' mode returns 1..12, in 'all' mode returns overall power rank (1..19)
+function getTeamPowerRank(s: StandingEntry): number {
+  if (isAllTime.value && inactiveFilter.value === 'active') {
+    return activePowerRankMap.value.get(s.team_id) ?? s.power_rank;
+  }
+  return s.power_rank;
+}
+
+// Rank delta between official standings rank and power rank (positive = underrated)
+function getPowerDelta(s: StandingEntry): number {
+  return getTeamRank(s) - getTeamPowerRank(s);
+}
 
 // Primary Table Mode: 'standings' (Official W-L) vs 'power' (Median & All-Play)
 type TableMode = 'standings' | 'power';
 const tableMode = ref<TableMode>('standings');
 
 // Column sort override within active mode
-type SortColumn = 'rank' | 'power_rank' | 'median' | 'points_for' | 'points_against' | 'all_play' | 'luck' | 'efficiency' | 'cash';
+type SortColumn = 'rank' | 'power_rank' | 'median' | 'points_for' | 'points_against' | 'all_play' | 'luck' | 'efficiency' | 'cash' | 'titles';
 const sortCol = ref<SortColumn>('rank');
 const sortAsc = ref<boolean>(true);
 
@@ -72,6 +155,7 @@ watch(
   () => selectedSeason.value,
   () => {
     spotlightTeamId.value = null;
+    inactiveFilter.value = 'active'; // Default to active first!
     loadStandings();
   }
 );
@@ -80,17 +164,20 @@ onMounted(() => {
   loadStandings();
 });
 
-const sortedStandings = computed<StandingEntry[]>(() => {
-  if (!standingsData.value?.standings) return [];
-  const list = [...standingsData.value.standings];
+function sortList(list: StandingEntry[]): StandingEntry[] {
   const dir = sortAsc.value ? 1 : -1;
-
-  return list.sort((a, b) => {
+  return [...list].sort((a, b) => {
     switch (sortCol.value) {
-      case 'rank':
-        return (a.rank - b.rank) * dir;
-      case 'power_rank':
-        return (a.power_rank - b.power_rank) * dir;
+      case 'rank': {
+        const aRank = getTeamRank(a);
+        const bRank = getTeamRank(b);
+        return (aRank - bRank) * dir;
+      }
+      case 'power_rank': {
+        const aPwr = getTeamPowerRank(a);
+        const bPwr = getTeamPowerRank(b);
+        return (aPwr - bPwr) * dir;
+      }
       case 'median': {
         const aTot = a.median_wins + a.median_losses + a.median_ties;
         const bTot = b.median_wins + b.median_losses + b.median_ties;
@@ -110,25 +197,82 @@ const sortedStandings = computed<StandingEntry[]>(() => {
         return (a.lineup_efficiency - b.lineup_efficiency) * dir;
       case 'cash':
         return (a.total_earnings - b.total_earnings) * dir;
-      default:
-        return (a.rank - b.rank) * dir;
+      case 'titles':
+        return (
+          (a.championships - b.championships ||
+            a.runner_ups - b.runner_ups ||
+            a.third_places - b.third_places ||
+            a.total_earnings - b.total_earnings) * dir
+        );
+      default: {
+        const aRank = getTeamRank(a);
+        const bRank = getTeamRank(b);
+        return (aRank - bRank) * dir;
+      }
     }
   });
+}
+
+// Active / Primary group (single season = all teams, all-time = active teams)
+const sortedActiveStandings = computed<StandingEntry[]>(() => {
+  if (!standingsData.value?.standings) return [];
+  if (!isAllTime.value) {
+    return sortList(standingsData.value.standings);
+  }
+  return sortList(activeStandings.value);
+});
+
+// Inactive group (shown later in all-time mode when inactiveFilter === 'all')
+const sortedInactiveStandings = computed<StandingEntry[]>(() => {
+  if (!standingsData.value?.standings || !isAllTime.value || inactiveFilter.value !== 'all') {
+    return [];
+  }
+  return sortList(inactiveStandings.value);
+});
+
+export type TableDisplayRow =
+  | { type: 'team'; standing: StandingEntry; isInactiveGroup: boolean; activeIndex: number }
+  | { type: 'inactive-header'; count: number };
+
+const displayRows = computed<TableDisplayRow[]>(() => {
+  const rows: TableDisplayRow[] = [];
+  sortedActiveStandings.value.forEach((s, idx) => {
+    rows.push({ type: 'team', standing: s, isInactiveGroup: false, activeIndex: idx });
+  });
+
+  if (isAllTime.value && inactiveFilter.value === 'all' && sortedInactiveStandings.value.length > 0) {
+    rows.push({ type: 'inactive-header', count: sortedInactiveStandings.value.length });
+    sortedInactiveStandings.value.forEach((s) => {
+      rows.push({ type: 'team', standing: s, isInactiveGroup: true, activeIndex: -1 });
+    });
+  }
+
+  return rows;
 });
 
 const playoffCutoff = computed<number>(() => {
   return standingsData.value?.playoff_team_count ?? 6;
 });
 
-// Show playoff divider only when sorted by default rank ascending in standings mode
+// Show playoff divider only when sorted by default rank ascending in single season standings mode
 const showPlayoffDivider = computed<boolean>(() => {
   return (
     tableMode.value === 'standings' &&
     sortCol.value === 'rank' &&
     sortAsc.value &&
+    !isAllTime.value &&
     !standingsData.value?.is_completed
   );
 });
+
+function getSeasonsCount(s: StandingEntry): number {
+  return s.weekly_history?.length || 1;
+}
+
+function formatSportsPct(pct: number): string {
+  const formatted = pct.toFixed(3);
+  return formatted.startsWith('0.') ? formatted.slice(1) : formatted;
+}
 
 function formatRecord(s: StandingEntry): string {
   return s.ties > 0 ? `${s.wins}-${s.losses}-${s.ties}` : `${s.wins}-${s.losses}`;
@@ -147,8 +291,11 @@ function formatAllPlay(s: StandingEntry): string {
 }
 
 function formatAllPlayPct(s: StandingEntry): string {
-  const pct = Math.abs(s.all_play_win_pct) <= 1 ? s.all_play_win_pct * 100 : s.all_play_win_pct;
-  return `${pct.toFixed(1)}%`;
+  const pct = Math.abs(s.all_play_win_pct) <= 1 ? s.all_play_win_pct : s.all_play_win_pct / 100;
+  if (isAllTime.value) {
+    return formatSportsPct(pct);
+  }
+  return `${(pct * 100).toFixed(1)}%`;
 }
 
 function formatLuck(val: number): string {
@@ -165,60 +312,102 @@ function formatStreak(s: StandingEntry): { text: string; isWin: boolean } | null
   return { text: `T${s.streak_length}`, isWin: false };
 }
 
-// Rank delta between Official Standings Rank and All-22 Power Rank
-// Positive means Power Rank is BETTER than Official Standings Rank (underrated / unlucky)
-function getPowerDelta(s: StandingEntry): number {
-  return s.rank - s.power_rank;
-}
-
 function openTeamDetail(team: StandingEntry) {
   selectedTeam.value = team;
   drawerOpen.value = true;
+}
+
+function handleOpenTeamById(teamId: number) {
+  const found = standingsData.value?.standings.find((s) => s.team_id === teamId);
+  if (found) {
+    openTeamDetail(found);
+  }
 }
 </script>
 
 <template>
   <div class="max-w-4xl mx-auto space-y-4 pb-20">
+    <!-- Playoff Bracket (Featured at top when available: after regular season or completed season) -->
+    <PlayoffBracket
+      v-if="standingsData && standingsData.playoff_bracket && standingsData.playoff_bracket.is_available"
+      :bracket="standingsData.playoff_bracket"
+      :trophy-name="trophyTitle"
+      @open-team="handleOpenTeamById"
+    />
+
     <!-- Compact Editorial Control Bar -->
-    <div class="flex items-center justify-between gap-2">
+    <div class="flex items-center justify-between gap-2 flex-wrap">
       <div class="flex items-baseline gap-2 min-w-0">
         <h2 class="text-base sm:text-lg font-black uppercase tracking-tight text-slate-100">
-          {{ tableMode === 'standings' ? 'Standings' : 'Power Rankings' }}
+          {{ isAllTime ? 'All-Time Standings' : (tableMode === 'standings' ? 'Standings' : 'Power Rankings') }}
         </h2>
         <span
-          v-if="standingsData"
+          v-if="standingsData && !isAllTime"
           class="text-[11px] font-mono text-slate-500 uppercase tracking-wider truncate"
         >
           {{ standingsData.is_completed ? `${standingsData.season_year} Final` : `Wk ${standingsData.current_week}` }}
         </span>
       </div>
 
-      <!-- Segmented Lens Switcher: Standings vs Power Rankings -->
-      <div class="inline-flex items-center rounded-lg bg-slate-900 border border-slate-800 p-0.5 text-xs font-semibold shrink-0">
-        <button
-          type="button"
-          class="px-2.5 py-1 rounded-md transition-all"
-          :class="
-            tableMode === 'standings'
-              ? 'bg-slate-800 text-slate-100 shadow-sm border border-slate-700/60'
-              : 'text-slate-400 hover:text-slate-200'
-          "
-          @click="switchMode('standings')"
+      <div class="flex items-center gap-2 flex-wrap justify-end">
+        <!-- Inactive Filter Pill (All-Time mode only) -->
+        <div
+          v-if="isAllTime"
+          class="inline-flex items-center rounded-lg bg-slate-900 border border-slate-800 p-0.5 text-xs font-semibold shrink-0"
         >
-          Standings
-        </button>
-        <button
-          type="button"
-          class="px-2.5 py-1 rounded-md transition-all"
-          :class="
-            tableMode === 'power'
-              ? 'bg-slate-800 text-slate-100 shadow-sm border border-slate-700/60'
-              : 'text-slate-400 hover:text-slate-200'
-          "
-          @click="switchMode('power')"
-        >
-          Power Ranks
-        </button>
+          <button
+            type="button"
+            class="px-2.5 py-1 rounded-md transition-all text-xs font-mono"
+            :class="
+              inactiveFilter === 'active'
+                ? 'bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            "
+            @click="inactiveFilter = 'active'"
+          >
+            Active ({{ activeFranchisesCount }})
+          </button>
+          <button
+            type="button"
+            class="px-2.5 py-1 rounded-md transition-all text-xs font-mono"
+            :class="
+              inactiveFilter === 'all'
+                ? 'bg-slate-800 text-slate-100 font-bold border border-slate-700/60 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            "
+            @click="inactiveFilter = 'all'"
+          >
+            All ({{ totalFranchisesCount }})
+          </button>
+        </div>
+
+        <!-- Segmented Lens Switcher: Standings vs Power Rankings -->
+        <div class="inline-flex items-center rounded-lg bg-slate-900 border border-slate-800 p-0.5 text-xs font-semibold shrink-0">
+          <button
+            type="button"
+            class="px-2.5 py-1 rounded-md transition-all"
+            :class="
+              tableMode === 'standings'
+                ? 'bg-slate-800 text-slate-100 shadow-sm border border-slate-700/60'
+                : 'text-slate-400 hover:text-slate-200'
+            "
+            @click="switchMode('standings')"
+          >
+            Standings
+          </button>
+          <button
+            type="button"
+            class="px-2.5 py-1 rounded-md transition-all"
+            :class="
+              tableMode === 'power'
+                ? 'bg-slate-800 text-slate-100 shadow-sm border border-slate-700/60'
+                : 'text-slate-400 hover:text-slate-200'
+            "
+            @click="switchMode('power')"
+          >
+            Power Rankings
+          </button>
+        </div>
       </div>
     </div>
 
@@ -241,13 +430,16 @@ function openTeamDetail(team: StandingEntry) {
     />
 
     <!-- Main Content: Standings Table followed by Standings Race Graph -->
-    <div v-else-if="standingsData && sortedStandings.length > 0" class="space-y-4">
+    <div v-else-if="standingsData && displayRows.length > 0" class="space-y-4">
       <!-- High-Density Mobile-First Scoreboard Table -->
       <div class="rounded-xl border border-slate-800/90 bg-[#0b101b] overflow-hidden shadow-lg">
         <!-- Column Headers: STANDINGS MODE -->
         <div
           v-if="tableMode === 'standings'"
-          class="grid grid-cols-[26px_1fr_46px_50px_56px] sm:grid-cols-[32px_1fr_56px_68px_72px_72px_68px] items-center px-2.5 sm:px-3.5 py-2 bg-slate-900/90 border-b border-slate-800/90 text-[10px] font-mono uppercase tracking-wider text-slate-400 select-none"
+          class="grid items-center px-2.5 sm:px-3.5 py-2 bg-slate-900/90 border-b border-slate-800/90 text-[10px] font-mono uppercase tracking-wider text-slate-400 select-none"
+          :class="isAllTime
+            ? 'grid-cols-[20px_1fr_42px_56px_48px] sm:grid-cols-[28px_1fr_56px_72px_64px_68px_68px_68px]'
+            : 'grid-cols-[22px_1fr_42px_44px_48px] sm:grid-cols-[28px_1fr_56px_64px_68px_68px_68px]'"
         >
           <button
             type="button"
@@ -266,6 +458,17 @@ function openTeamDetail(team: StandingEntry) {
           >
             W-L
           </button>
+          <!-- In All-Time mode: Titles Column Header (1st, 2nd, 3rd) -->
+          <button
+            v-if="isAllTime"
+            type="button"
+            class="text-right font-bold hover:text-slate-200 transition-colors"
+            :class="sortCol === 'titles' ? 'text-amber-400' : ''"
+            @click="toggleSort('titles')"
+            title="Podium Titles & Finishes (1st, 2nd, 3rd)"
+          >
+            Titles
+          </button>
           <button
             type="button"
             class="text-right font-bold hover:text-slate-200 transition-colors"
@@ -277,7 +480,10 @@ function openTeamDetail(team: StandingEntry) {
           <button
             type="button"
             class="text-right font-bold hover:text-slate-200 transition-colors"
-            :class="sortCol === 'points_for' ? 'text-amber-400' : ''"
+            :class="[
+              sortCol === 'points_for' ? 'text-amber-400' : '',
+              isAllTime ? 'hidden sm:block' : ''
+            ]"
             @click="toggleSort('points_for')"
           >
             PF
@@ -296,14 +502,14 @@ function openTeamDetail(team: StandingEntry) {
             :class="sortCol === 'all_play' ? 'text-amber-400' : ''"
             @click="toggleSort('all_play')"
           >
-            All-22
+            All-Play
           </button>
         </div>
 
         <!-- Column Headers: POWER MODE (Median & All-Play Tiebreaker) -->
         <div
           v-else
-          class="grid grid-cols-[40px_1fr_46px_54px_54px] sm:grid-cols-[48px_1fr_56px_72px_68px_60px_60px] items-center px-2.5 sm:px-3.5 py-2 bg-slate-900/90 border-b border-slate-800/90 text-[10px] font-mono uppercase tracking-wider text-slate-400 select-none"
+          class="grid grid-cols-[34px_1fr_42px_48px_48px] sm:grid-cols-[44px_1fr_56px_68px_68px_60px_60px] items-center px-2.5 sm:px-3.5 py-2 bg-slate-900/90 border-b border-slate-800/90 text-[10px] font-mono uppercase tracking-wider text-slate-400 select-none"
         >
           <button
             type="button"
@@ -328,9 +534,9 @@ function openTeamDetail(team: StandingEntry) {
             class="text-right font-bold hover:text-slate-200 transition-colors"
             :class="sortCol === 'all_play' ? 'text-amber-400' : ''"
             @click="toggleSort('all_play')"
-            title="All-22 All-Play Record (Tiebreaker Metric)"
+            title="All-Play Record (Tiebreaker Metric)"
           >
-            All-22
+            All-Play
           </button>
           <button
             type="button"
@@ -362,25 +568,48 @@ function openTeamDetail(team: StandingEntry) {
 
         <!-- Compact Team Rows -->
         <div class="divide-y divide-slate-800/60">
-          <template v-for="(s, idx) in sortedStandings" :key="s.team_id">
-            <!-- Row Item -->
+          <template v-for="row in displayRows" :key="row.type === 'inactive-header' ? 'inactive-header' : row.standing.team_id">
+            <!-- Former / Inactive Franchises Divider Header (Shown later when toggle is 'all') -->
             <div
+              v-if="row.type === 'inactive-header'"
+              class="px-3 sm:px-3.5 py-2 bg-slate-950/95 border-y border-slate-800/90 flex items-center justify-between gap-2 text-xs font-mono select-none"
+            >
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="text-xs">🏛️</span>
+                <span class="text-[11px] font-bold uppercase tracking-wider text-slate-300 truncate">
+                  Former / Inactive Franchises ({{ row.count }})
+                </span>
+                <span class="hidden sm:inline text-[10px] text-slate-500">
+                  · Past competitors no longer active in current season
+                </span>
+              </div>
+              <span class="text-[9.5px] text-slate-500 uppercase tracking-widest shrink-0 font-semibold">
+                All-Time
+              </span>
+            </div>
+
+            <!-- Team Row Item -->
+            <div
+              v-else
               role="button"
               tabindex="0"
               class="relative transition-colors cursor-pointer select-none active:bg-slate-800/70 hover:bg-slate-900/70"
               :class="[
-                spotlightTeamId === s.team_id ? 'bg-slate-800/50' : '',
+                spotlightTeamId === row.standing.team_id ? 'bg-slate-800/50' : '',
+                row.isInactiveGroup ? 'opacity-65 hover:opacity-100 bg-slate-950/40' : '',
               ]"
-              @click="openTeamDetail(s)"
-              @keydown.enter="openTeamDetail(s)"
+              @click="openTeamDetail(row.standing)"
+              @keydown.enter="openTeamDetail(row.standing)"
             >
               <!-- Left Edge Status Accent Bar -->
               <span
                 class="absolute left-0 inset-y-0 w-[3px]"
                 :class="
-                  (tableMode === 'standings' ? s.rank : s.power_rank) === 1
+                  (tableMode === 'standings' ? getTeamRank(row.standing) : getTeamPowerRank(row.standing)) === 1
                     ? 'bg-amber-400'
-                    : s.rank <= playoffCutoff
+                    : row.standing.is_defending_champion
+                    ? 'bg-amber-400/80 shadow-[0_0_8px_rgba(251,191,36,0.4)]'
+                    : (!isAllTime && row.standing.rank <= playoffCutoff)
                     ? 'bg-emerald-500/70'
                     : 'bg-transparent'
                 "
@@ -389,46 +618,97 @@ function openTeamDetail(team: StandingEntry) {
               <!-- ROW LAYOUT: STANDINGS MODE -->
               <div
                 v-if="tableMode === 'standings'"
-                class="grid grid-cols-[26px_1fr_46px_50px_56px] sm:grid-cols-[32px_1fr_56px_68px_72px_72px_68px] items-center px-2.5 sm:px-3.5 py-2.5"
+                class="grid items-center px-2.5 sm:px-3.5 py-2.5"
+                :class="isAllTime
+                  ? 'grid-cols-[20px_1fr_42px_56px_48px] sm:grid-cols-[28px_1fr_56px_72px_64px_68px_68px_68px]'
+                  : 'grid-cols-[22px_1fr_42px_44px_48px] sm:grid-cols-[28px_1fr_56px_64px_68px_68px_68px]'"
               >
                 <!-- Rank -->
                 <div
                   class="font-mono text-xs font-black tabular-nums"
                   :class="
-                    s.rank === 1
+                    getTeamRank(row.standing) === 1
                       ? 'text-amber-400'
-                      : s.rank <= playoffCutoff
+                      : !isAllTime && row.standing.rank <= playoffCutoff
                       ? 'text-slate-200'
-                      : 'text-slate-500'
+                      : row.isInactiveGroup
+                      ? 'text-slate-500'
+                      : 'text-slate-300'
                   "
                 >
-                  {{ s.rank }}
+                  {{ getTeamRank(row.standing) }}
                 </div>
 
                 <!-- Franchise Cell -->
-                <div class="flex items-center gap-2 min-w-0 pr-2">
-                  <TeamAvatar :src="s.logo_url" :name="s.team_name" size="xs" rounded="lg" />
+                <div class="flex items-center gap-2 min-w-0 pr-1">
+                  <TeamAvatar :src="row.standing.logo_url" :name="row.standing.team_name" size="xs" rounded="lg" />
                   <div class="min-w-0 flex-1">
                     <div class="flex items-center gap-1.5 min-w-0">
                       <span class="text-[13px] sm:text-sm font-bold text-slate-100 truncate leading-tight">
-                        {{ s.team_name }}
+                        {{ row.standing.team_name }}
                       </span>
+                      <!-- Former / Inactive Franchise Badge -->
                       <span
-                        v-if="standingsData.is_completed && s.final_standing === 1"
-                        class="text-[9px] font-mono font-black uppercase px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0"
+                        v-if="isAllTime && !row.standing.is_active"
+                        class="inline-flex items-center text-[8.5px] font-mono font-bold uppercase px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700/80 shrink-0 select-none"
+                        title="Former Franchise Manager — No longer active in current season"
                       >
-                        CHAMP
+                        INACTIVE
+                      </span>
+                      <!-- Championship Stars (Soccer / World Cup style: 1 star per title) -->
+                      <div
+                        v-if="row.standing.championships > 0"
+                        class="inline-flex items-center gap-0.5 shrink-0"
+                        :title="`${row.standing.championships}x Champion (${row.standing.championship_years.join(', ')})`"
+                      >
+                        <span
+                          v-for="yr in row.standing.championship_years"
+                          :key="yr"
+                          class="text-amber-400 text-xs sm:text-sm leading-none drop-shadow-[0_0_5px_rgba(251,191,36,0.6)] select-none"
+                        >
+                          ★
+                        </span>
+                      </div>
+                      <!-- Special Symbol / Indicator for Previous Champion (Defending Champion) -->
+                      <span
+                        v-if="row.standing.is_defending_champion"
+                        class="inline-flex items-center gap-1 text-[9px] font-mono font-black uppercase px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/35 shrink-0 shadow-sm"
+                        :title="`Defending Champion — Current Holder of ${trophyTitle}`"
+                      >
+                        <span class="text-[10px]">🏆</span>
+                        <span class="hidden xs:inline">DEFENDING</span> CHAMP
+                      </span>
+                      <!-- Completed Season Winner Badge -->
+                      <span
+                        v-else-if="standingsData.is_completed && row.standing.final_standing === 1"
+                        class="inline-flex items-center gap-1 text-[9px] font-mono font-black uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0"
+                      >
+                        <span class="text-[10px]">🏆</span>
+                        <span>CHAMP</span>
                       </span>
                     </div>
-                    <div class="flex items-center gap-1.5 text-[10px] text-slate-400 leading-tight mt-0.5 truncate">
-                      <span class="truncate">{{ s.manager_name }}</span>
-                      <template v-if="formatStreak(s)">
-                        <span class="text-slate-700">·</span>
+                    <div class="flex items-center gap-1.5 text-[10px] text-slate-400 leading-tight mt-0.5 min-w-0">
+                      <span class="truncate">{{ row.standing.manager_name }}</span>
+                      <template v-if="isAllTime">
+                        <span class="text-slate-600 shrink-0">·</span>
                         <span
-                          class="font-mono font-semibold"
-                          :class="formatStreak(s)?.isWin ? 'text-emerald-400/90' : 'text-rose-400/80'"
+                          class="text-[9.5px] font-mono text-slate-400 shrink-0 select-none"
+                          :title="`${getSeasonsCount(row.standing)} ${getSeasonsCount(row.standing) === 1 ? 'season' : 'seasons'} in league history`"
                         >
-                          {{ formatStreak(s)?.text }}
+                          {{ getSeasonsCount(row.standing) }} {{ getSeasonsCount(row.standing) === 1 ? 'season' : 'seasons' }}
+                        </span>
+                      </template>
+                      <template v-if="isAllTime && inactiveFilter === 'all' && row.standing.is_active && activeRankMap.get(row.standing.team_id)">
+                        <span class="text-slate-600 shrink-0">·</span>
+                        <span class="font-mono text-[9.5px] text-emerald-400/90 font-medium shrink-0">#{{ activeRankMap.get(row.standing.team_id) }} Active</span>
+                      </template>
+                      <template v-if="!isAllTime && formatStreak(row.standing)">
+                        <span class="text-slate-700 shrink-0">·</span>
+                        <span
+                          class="font-mono font-semibold shrink-0"
+                          :class="formatStreak(row.standing)?.isWin ? 'text-emerald-400/90' : 'text-rose-400/80'"
+                        >
+                          {{ formatStreak(row.standing)?.text }}
                         </span>
                       </template>
                     </div>
@@ -437,36 +717,73 @@ function openTeamDetail(team: StandingEntry) {
 
                 <!-- Official W-L Record -->
                 <div class="text-right font-mono text-xs sm:text-sm font-bold text-slate-100 tabular-nums">
-                  {{ formatRecord(s) }}
+                  {{ formatRecord(row.standing) }}
                 </div>
 
-                <!-- Cash Earnings Column (Right after W-L) -->
-                <div class="text-right font-mono tabular-nums">
+                <!-- Titles Column (All-Time mode only: 1st, 2nd, 3rd) -->
+                <div
+                  v-if="isAllTime"
+                  class="text-right font-mono tabular-nums flex items-center justify-end gap-1 text-[11px] sm:text-xs"
+                >
                   <span
-                    class="text-xs sm:text-sm font-bold"
-                    :class="s.total_earnings > 0 ? 'text-emerald-400' : 'text-slate-600'"
+                    v-if="row.standing.championships > 0"
+                    class="font-bold text-amber-400 select-none whitespace-nowrap"
+                    :title="`${row.standing.championships}x Champion (${row.standing.championship_years.join(', ')})`"
                   >
-                    ${{ s.total_earnings.toFixed(0) }}
+                    🏆{{ row.standing.championships }}
+                  </span>
+                  <span
+                    v-if="row.standing.runner_ups > 0"
+                    class="font-medium text-slate-300 select-none whitespace-nowrap"
+                    :title="`${row.standing.runner_ups}x Runner-Up (${row.standing.runner_up_years.join(', ')})`"
+                  >
+                    🥈{{ row.standing.runner_ups }}
+                  </span>
+                  <span
+                    v-if="row.standing.third_places > 0"
+                    class="font-medium text-amber-600 select-none whitespace-nowrap"
+                    :title="`${row.standing.third_places}x 3rd Place (${row.standing.third_place_years.join(', ')})`"
+                  >
+                    🥉{{ row.standing.third_places }}
+                  </span>
+                  <span
+                    v-if="row.standing.championships === 0 && row.standing.runner_ups === 0 && row.standing.third_places === 0"
+                    class="text-slate-600 select-none"
+                  >
+                    —
                   </span>
                 </div>
 
-                <!-- Points For (Clean number, no bar) -->
-                <div class="text-right font-mono text-xs sm:text-sm text-slate-200 font-semibold tabular-nums">
-                  {{ s.points_for.toFixed(1) }}
+                <!-- Cash Earnings Column -->
+                <div class="text-right font-mono tabular-nums">
+                  <span
+                    class="text-xs sm:text-sm font-bold"
+                    :class="row.standing.total_earnings > 0 ? 'text-emerald-400' : 'text-slate-600'"
+                  >
+                    ${{ row.standing.total_earnings.toFixed(0) }}
+                  </span>
+                </div>
+
+                <!-- Points For (Clean number, on desktop in all-time, on mobile in single-season) -->
+                <div
+                  class="text-right font-mono text-xs sm:text-sm text-slate-200 font-semibold tabular-nums"
+                  :class="isAllTime ? 'hidden sm:block' : ''"
+                >
+                  {{ row.standing.points_for.toFixed(1) }}
                 </div>
 
                 <!-- Points Against (Desktop/Tablet) -->
                 <div class="hidden sm:block text-right font-mono text-xs text-slate-400 tabular-nums">
-                  {{ s.points_against.toFixed(1) }}
+                  {{ row.standing.points_against.toFixed(1) }}
                 </div>
 
                 <!-- All-22 Record (Desktop/Tablet) -->
                 <div class="hidden sm:block text-right font-mono tabular-nums">
                   <div class="text-[11px] text-slate-300 font-medium">
-                    {{ formatAllPlay(s) }}
+                    {{ formatAllPlay(row.standing) }}
                   </div>
                   <div class="text-[9px] text-slate-500">
-                    Pwr #{{ s.power_rank }}
+                    Pwr #{{ getTeamPowerRank(row.standing) }}
                   </div>
                 </div>
               </div>
@@ -474,68 +791,122 @@ function openTeamDetail(team: StandingEntry) {
               <!-- ROW LAYOUT: POWER MODE -->
               <div
                 v-else
-                class="grid grid-cols-[40px_1fr_46px_54px_54px] sm:grid-cols-[48px_1fr_56px_72px_68px_60px_60px] items-center px-2.5 sm:px-3.5 py-2.5"
+                class="grid grid-cols-[34px_1fr_42px_48px_48px] sm:grid-cols-[44px_1fr_56px_68px_68px_60px_60px] items-center px-2.5 sm:px-3.5 py-2.5"
               >
                 <!-- Power Rank + Delta vs Official Standings -->
                 <div class="flex items-center gap-1 font-mono tabular-nums">
                   <span
                     class="text-xs font-black w-4"
-                    :class="s.power_rank === 1 ? 'text-amber-400' : 'text-slate-200'"
+                    :class="getTeamPowerRank(row.standing) === 1 ? 'text-amber-400' : 'text-slate-200'"
                   >
-                    {{ s.power_rank }}
+                    {{ getTeamPowerRank(row.standing) }}
                   </span>
                   <span
-                    v-if="getPowerDelta(s) > 0"
+                    v-if="getPowerDelta(row.standing) > 0"
                     class="text-[9px] font-bold text-emerald-400"
-                    :title="`Power Rank is ${getPowerDelta(s)} spots higher than Standings (#${s.rank})`"
+                    :title="`Power Rank is ${getPowerDelta(row.standing)} spots higher than Standings (#${getTeamRank(row.standing)})`"
                   >
-                    ▲{{ getPowerDelta(s) }}
+                    ▲{{ getPowerDelta(row.standing) }}
                   </span>
                   <span
-                    v-else-if="getPowerDelta(s) < 0"
+                    v-else-if="getPowerDelta(row.standing) < 0"
                     class="text-[9px] font-bold text-rose-400"
-                    :title="`Power Rank is ${Math.abs(getPowerDelta(s))} spots lower than Standings (#${s.rank})`"
+                    :title="`Power Rank is ${Math.abs(getPowerDelta(row.standing))} spots lower than Standings (#${getTeamRank(row.standing)})`"
                   >
-                    ▼{{ Math.abs(getPowerDelta(s)) }}
+                    ▼{{ Math.abs(getPowerDelta(row.standing)) }}
                   </span>
                   <span v-else class="text-[9px] text-slate-600">—</span>
                 </div>
 
                 <!-- Franchise Cell -->
-                <div class="flex items-center gap-2 min-w-0 pr-2">
-                  <TeamAvatar :src="s.logo_url" :name="s.team_name" size="xs" rounded="lg" />
+                <div class="flex items-center gap-2 min-w-0 pr-1">
+                  <TeamAvatar :src="row.standing.logo_url" :name="row.standing.team_name" size="xs" rounded="lg" />
                   <div class="min-w-0 flex-1">
-                    <div class="text-[13px] sm:text-sm font-bold text-slate-100 truncate leading-tight">
-                      {{ s.team_name }}
-                    </div>
-                    <div class="flex items-center gap-1.5 text-[10px] text-slate-400 leading-tight mt-0.5 truncate">
-                      <span class="truncate">{{ s.manager_name }}</span>
-                      <span class="text-slate-700">·</span>
-                      <span class="font-mono text-slate-400">
-                        {{ formatRecord(s) }} (#{{ s.rank }})
+                    <div class="flex items-center gap-1.5 min-w-0">
+                      <span class="text-[13px] sm:text-sm font-bold text-slate-100 truncate leading-tight">
+                        {{ row.standing.team_name }}
                       </span>
+                      <!-- Former / Inactive Franchise Badge -->
+                      <span
+                        v-if="isAllTime && !row.standing.is_active"
+                        class="inline-flex items-center text-[8.5px] font-mono font-bold uppercase px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700/80 shrink-0 select-none"
+                        title="Former Franchise Manager — No longer active in current season"
+                      >
+                        INACTIVE
+                      </span>
+                      <!-- Championship Stars (Soccer / World Cup style: 1 star per title) -->
+                      <div
+                        v-if="row.standing.championships > 0"
+                        class="inline-flex items-center gap-0.5 shrink-0"
+                        :title="`${row.standing.championships}x Champion (${row.standing.championship_years.join(', ')})`"
+                      >
+                        <span
+                          v-for="yr in row.standing.championship_years"
+                          :key="yr"
+                          class="text-amber-400 text-xs sm:text-sm leading-none drop-shadow-[0_0_5px_rgba(251,191,36,0.6)] select-none"
+                        >
+                          ★
+                        </span>
+                      </div>
+                      <!-- Special Symbol / Indicator for Previous Champion (Defending Champion) -->
+                      <span
+                        v-if="row.standing.is_defending_champion"
+                        class="inline-flex items-center gap-1 text-[9px] font-mono font-black uppercase px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/35 shrink-0 shadow-sm"
+                        :title="`Defending Champion — Current Holder of ${trophyTitle}`"
+                      >
+                        <span class="text-[10px]">🏆</span>
+                        <span class="hidden xs:inline">DEFENDING</span> CHAMP
+                      </span>
+                      <!-- Completed Season Winner Badge -->
+                      <span
+                        v-else-if="standingsData.is_completed && row.standing.final_standing === 1"
+                        class="inline-flex items-center gap-1 text-[9px] font-mono font-black uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0"
+                      >
+                        <span class="text-[10px]">🏆</span>
+                        <span>CHAMP</span>
+                      </span>
+                    </div>
+                    <div class="flex items-center gap-1.5 text-[10px] text-slate-400 leading-tight mt-0.5 min-w-0">
+                      <span class="truncate">{{ row.standing.manager_name }}</span>
+                      <span class="text-slate-700 shrink-0">·</span>
+                      <span class="font-mono text-slate-400 shrink-0">
+                        {{ formatRecord(row.standing) }} (#{{ getTeamRank(row.standing) }})
+                      </span>
+                      <template v-if="isAllTime">
+                        <span class="text-slate-700 shrink-0">·</span>
+                        <span
+                          class="text-[9.5px] font-mono text-slate-400 shrink-0 select-none"
+                          :title="`${getSeasonsCount(row.standing)} ${getSeasonsCount(row.standing) === 1 ? 'season' : 'seasons'} in league history`"
+                        >
+                          {{ getSeasonsCount(row.standing) }} {{ getSeasonsCount(row.standing) === 1 ? 'season' : 'seasons' }}
+                        </span>
+                      </template>
+                      <template v-if="isAllTime && inactiveFilter === 'all' && row.standing.is_active && activePowerRankMap.get(row.standing.team_id)">
+                        <span class="text-slate-700 shrink-0">·</span>
+                        <span class="font-mono text-[9.5px] text-emerald-400/90 font-medium shrink-0">#{{ activePowerRankMap.get(row.standing.team_id) }} Pwr</span>
+                      </template>
                     </div>
                   </div>
                 </div>
 
                 <!-- Median Record (Primary Metric) -->
                 <div class="text-right font-mono text-xs sm:text-sm font-bold text-slate-100 tabular-nums">
-                  {{ formatMedianRecord(s) }}
+                  {{ formatMedianRecord(row.standing) }}
                 </div>
 
                 <!-- All-22 Record (Tiebreaker Metric) -->
                 <div class="text-right font-mono tabular-nums">
                   <div class="text-xs font-semibold text-slate-200">
-                    {{ formatAllPlay(s) }}
+                    {{ formatAllPlay(row.standing) }}
                   </div>
                   <div class="text-[9px] text-slate-400">
-                    {{ formatAllPlayPct(s) }}
+                    {{ formatAllPlayPct(row.standing) }}
                   </div>
                 </div>
 
                 <!-- Points For -->
                 <div class="text-right font-mono text-xs sm:text-sm text-slate-200 font-semibold tabular-nums">
-                  {{ s.points_for.toFixed(1) }}
+                  {{ row.standing.points_for.toFixed(1) }}
                 </div>
 
                 <!-- Schedule Luck Index (Desktop/Tablet) -->
@@ -543,27 +914,28 @@ function openTeamDetail(team: StandingEntry) {
                   <span
                     class="text-[11px] font-semibold"
                     :class="
-                      s.luck_index > 0.05
+                      row.standing.luck_index > 0.05
                         ? 'text-emerald-400'
-                        : s.luck_index < -0.05
+                        : row.standing.luck_index < -0.05
                         ? 'text-rose-400'
                         : 'text-slate-400'
                     "
                   >
-                    {{ formatLuck(s.luck_index) }}
+                    {{ formatLuck(row.standing.luck_index) }}
                   </span>
                 </div>
 
                 <!-- Lineup Efficiency (Desktop/Tablet) -->
                 <div class="hidden sm:block text-right font-mono text-xs text-slate-300 tabular-nums">
-                  {{ (s.lineup_efficiency <= 1 ? s.lineup_efficiency * 100 : s.lineup_efficiency).toFixed(1) }}%
+                  <span v-if="!row.standing.lineup_efficiency || row.standing.lineup_efficiency <= 0" class="text-slate-500 select-none">—</span>
+                  <span v-else>{{ Math.min(100, Math.max(0, row.standing.lineup_efficiency <= 1 ? row.standing.lineup_efficiency * 100 : row.standing.lineup_efficiency)).toFixed(1) }}%</span>
                 </div>
               </div>
             </div>
 
             <!-- Playoff Cutoff Line -->
             <div
-              v-if="showPlayoffDivider && idx + 1 === playoffCutoff && idx + 1 < sortedStandings.length"
+              v-if="showPlayoffDivider && row.type === 'team' && !row.isInactiveGroup && row.activeIndex + 1 === playoffCutoff && row.activeIndex + 1 < sortedActiveStandings.length"
               class="px-3 py-1 bg-slate-950/90 border-y border-emerald-500/30 flex items-center justify-between text-[9px] font-mono uppercase tracking-widest text-emerald-400/90"
             >
               <span>▲ Playoff Cutline (Top {{ playoffCutoff }})</span>
@@ -573,11 +945,14 @@ function openTeamDetail(team: StandingEntry) {
         </div>
       </div>
 
-      <!-- Mario Party Style Weekly Standings Race Graphic (Below Standings) -->
+      <!-- Weekly Standings Race Graphic (Single-Season only) -->
       <WeeklyTrajectoryChart
+        v-if="!isAllTime"
         v-model:selected-team-id="spotlightTeamId"
         :standings="standingsData.standings"
         :playoff-team-count="playoffCutoff"
+        :regular-season-weeks="standingsData.regular_season_weeks"
+        :trophy-name="trophyTitle"
         @open-team-detail="openTeamDetail"
       />
 
@@ -586,7 +961,14 @@ function openTeamDetail(team: StandingEntry) {
         v-model="drawerOpen"
         :standing="selectedTeam"
         :is-completed="standingsData.is_completed"
-        :season-year="standingsData.season_year"
+        :season-year="standingsData.season_year ?? undefined"
+        :trophy-name="trophyTitle"
+        :display-rank="selectedTeam ? getTeamRank(selectedTeam) : undefined"
+        :display-power-rank="selectedTeam ? getTeamPowerRank(selectedTeam) : undefined"
+        :overall-rank="selectedTeam ? selectedTeam.rank : undefined"
+        :overall-power-rank="selectedTeam ? selectedTeam.power_rank : undefined"
+        :active-rank="selectedTeam && selectedTeam.is_active ? activeRankMap.get(selectedTeam.team_id) : undefined"
+        :is-all-time="isAllTime"
       />
     </div>
 

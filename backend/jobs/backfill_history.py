@@ -21,8 +21,9 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from backend.database import get_session
+from backend.database import get_session, init_db
 from backend.jobs.deep_parsers import (
+    upsert_draft_picks_from_payload,
     upsert_players_from_payload,
     upsert_transactions_from_payload,
     upsert_weekly_lineups_from_payload,
@@ -36,6 +37,7 @@ from backend.jobs.parsers import (
     upsert_season_from_payload,
     upsert_teams_from_payload,
 )
+from backend.models.player import Player
 from backend.models.raw_snapshot import RawEspnSnapshot
 from backend.models.sync_run import SyncRun
 
@@ -115,6 +117,7 @@ def backfill_history(
                             "boxscores",
                             "transactions",
                             "topics",
+                            "draftDetail",
                         ):
                             if k in snap.payload:
                                 combined[k] = snap.payload[k]
@@ -126,8 +129,31 @@ def backfill_history(
             matchups = upsert_matchups_from_payload(session, season, combined, team_map)
             players = upsert_players_from_payload(session, combined)
             lineups = upsert_weekly_lineups_from_payload(session, season, combined, team_map)
+
+            # Restore individual scoring period boxscore snapshots if present
+            for snap in year_snaps:
+                if snap.view_name == "mBoxscore" and snap.scoring_period > 0 and isinstance(snap.payload, dict):
+                    upsert_players_from_payload(session, snap.payload)
+                    period_lineups = upsert_weekly_lineups_from_payload(
+                        session, season, snap.payload, team_map, weeks=[snap.scoring_period]
+                    )
+                    lineups.extend(period_lineups)
+
+            draft_picks = upsert_draft_picks_from_payload(session, season, combined, team_map, client=client)
             txs = upsert_transactions_from_payload(session, season, combined, team_map)
             ledger_entries = reconcile_season_ledger(session, season)
+
+            logger.info(
+                "Season %d snapshot restored: %d teams, %d matchups, %d players, %d lineups, %d draft picks, %d transactions, %d earnings entries.",
+                year,
+                len(team_map),
+                len(matchups),
+                len(players),
+                len(lineups),
+                len(draft_picks),
+                len(txs),
+                len(ledger_entries),
+            )
 
             records_processed += (
                 1
@@ -135,6 +161,7 @@ def backfill_history(
                 + len(matchups)
                 + len(players)
                 + len(lineups)
+                + len(draft_picks)
                 + len(txs)
                 + len(ledger_entries)
             )
@@ -175,6 +202,7 @@ def backfill_history(
         "mRoster",
         "mBoxscore",
         "mTransactions2",
+        "mDraftDetail",
     ]
 
     for year in range(start_y, end_y + 1):
@@ -245,25 +273,85 @@ def backfill_history(
         }
         max_sp = min(int(season.current_week or 1), 18)
         all_txs = list(payload.get("transactions") or [])
-        if season.season_year >= 2018 and max_sp >= 1 and hasattr(espn_client, "http_session"):
-            for sp in range(1, max_sp + 1):
+        if season.season_year >= 2018 and hasattr(espn_client, "http_session"):
+            for sp in range(0, max_sp + 1):
                 try:
                     sp_payload = espn_client.fetch_league(
                         season_year=year,
-                        views=["mBoxscore", "mTransactions2", "mRoster"],
+                        views=["mBoxscore", "mTransactions2", "mRoster", "mTeam"],
                         x_fantasy_filter=tx_filter,
                         allow_inaccessible=True,
                         league_id=target_league_id,
                         scoring_period_id=sp,
                     )
                     if isinstance(sp_payload, dict) and sp_payload.get("seasonId") == year:
-                        upsert_players_from_payload(session, sp_payload)
-                        upsert_weekly_lineups_from_payload(
-                            session, season, sp_payload, team_map, weeks=[sp]
+                        sp_snap = (
+                            session.query(RawEspnSnapshot)
+                            .filter_by(season_year=year, view_name="mBoxscore", scoring_period=sp)
+                            .first()
                         )
+                        if sp_snap:
+                            sp_snap.payload = sp_payload
+                        else:
+                            session.add(
+                                RawEspnSnapshot(
+                                    season_year=year,
+                                    view_name="mBoxscore",
+                                    scoring_period=sp,
+                                    payload=sp_payload,
+                                )
+                            )
+                        upsert_players_from_payload(session, sp_payload)
+                        if sp > 0:
+                            upsert_weekly_lineups_from_payload(
+                                session, season, sp_payload, team_map, weeks=[sp]
+                            )
                         all_txs.extend(sp_payload.get("transactions") or [])
                 except Exception as sp_exc:
                     logger.debug("Skipping scoring period %d deep fetch: %s", sp, sp_exc)
+        # Fetch league communication topics (recent activity) for executed trades (2019+)
+        if season.season_year >= 2019 and hasattr(espn_client, "fetch_communication"):
+            try:
+                comm_filter = {
+                    "topics": {
+                        "filterType": {"value": ["ACTIVITY_TRANSACTIONS"]},
+                        "limit": 500,
+                        "limitPerMessageSet": {"value": 25},
+                        "offset": 0,
+                        "sortMessageDate": {"sortPriority": 1, "sortAsc": False},
+                        "sortFor": {"sortPriority": 2, "sortAsc": False},
+                        "filterIncludeMessageTypeIds": {"value": [244, 245, 246, 290]},
+                    }
+                }
+                comm_data = espn_client.fetch_communication(
+                    season_year=year,
+                    league_id=target_league_id,
+                    x_fantasy_filter=comm_filter,
+                )
+                if comm_data and comm_data.get("topics"):
+                    payload = dict(payload)
+                    payload["topics"] = comm_data.get("topics")
+
+                    # Fetch any missing players mentioned in communication topics
+                    if hasattr(espn_client, "fetch_player_info"):
+                        missing_pids = set()
+                        for t in comm_data.get("topics", []):
+                            for m in t.get("messages", []):
+                                if m.get("messageTypeId") in (244, 245):
+                                    pid = int(m.get("targetId", 0))
+                                    if pid > 0 and not session.get(Player, pid):
+                                        missing_pids.add(pid)
+                        if missing_pids:
+                            players_data = espn_client.fetch_player_info(
+                                season_year=year,
+                                player_ids=list(missing_pids),
+                                league_id=target_league_id,
+                            )
+                            if players_data:
+                                upsert_players_from_payload(session, {"players": players_data})
+            except Exception as comm_exc:
+                logger.debug("Skipping communication fetch: %s", comm_exc)
+
         if all_txs:
             payload = dict(payload)
             payload["transactions"] = all_txs
@@ -276,9 +364,24 @@ def backfill_history(
                 snap_to_update.payload = payload
 
         players = upsert_players_from_payload(session, payload)
+        draft_picks = upsert_draft_picks_from_payload(
+            session, season, payload, team_map, client=espn_client
+        )
         lineups = upsert_weekly_lineups_from_payload(session, season, payload, team_map)
         txs = upsert_transactions_from_payload(session, season, payload, team_map)
         ledger_entries = reconcile_season_ledger(session, season)
+
+        logger.info(
+            "Season %d processed: %d teams, %d matchups, %d players, %d lineups, %d draft picks, %d transactions, %d earnings entries.",
+            year,
+            len(team_map),
+            len(matchups),
+            len(players),
+            len(lineups),
+            len(draft_picks),
+            len(txs),
+            len(ledger_entries),
+        )
 
         records_processed += (
             1
@@ -286,6 +389,7 @@ def backfill_history(
             + len(matchups)
             + len(players)
             + len(lineups)
+            + len(draft_picks)
             + len(txs)
             + len(ledger_entries)
         )
@@ -322,6 +426,7 @@ def main() -> None:
     league_ids = [args.league_id] if args.league_id else get_configured_league_ids()
     target_league_id = league_ids[0]
 
+    init_db()
     with get_session() as session:
         run = backfill_history(
             session=session,

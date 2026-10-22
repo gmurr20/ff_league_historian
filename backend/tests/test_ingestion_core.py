@@ -176,6 +176,66 @@ def test_manager_identity_resolution(db_session: Session) -> None:
     assert custom_mgrs["{ANDREW-GUID}"].display_name == "Andrew Solano"
     assert custom_mgrs["{ANDREW-GUID}"].avatar_url == "https://g.espncdn.com/lm-static/ffl/images/default_logos/5.svg"
 
+    # Verify alt-account / secondary GUID deduplication, canonical name precedence, and self-co-manager suppression:
+    alt_override = {
+        "guid_to_canonical_guid": {
+            "{BRIAN2-HOEL2-ALT}": "{BRIAN-HOEL-CANONICAL}",
+        },
+        "ignored_member_guids": {"{SPAM-OR-GHOST-MEMBER}"},
+        "display_name_overrides": {},
+        "team_season_overrides": {},
+    }
+    alt_payload = {
+        "seasonId": 2025,
+        "members": [
+            {
+                "id": "{BRIAN2-HOEL2-ALT}",
+                "displayName": "ESPNFAN4289664488",
+                "firstName": "Brian2",
+                "lastName": "Hoel2",
+            },
+            {
+                "id": "{BRIAN-HOEL-CANONICAL}",
+                "displayName": "ESPNFAN1112758055",
+                "firstName": "Brian",
+                "lastName": "Hoel",
+            },
+            {
+                "id": "{SPAM-OR-GHOST-MEMBER}",
+                "displayName": "GhostUser",
+                "firstName": "Ghost",
+                "lastName": "User",
+            },
+        ],
+        "teams": [
+            {
+                "id": 1,
+                "name": "Chubby Johnston",
+                "primaryOwner": "{BRIAN-HOEL-CANONICAL}",
+                "owners": [
+                    "{BRIAN-HOEL-CANONICAL}",
+                    "{BRIAN2-HOEL2-ALT}",
+                    "{SPAM-OR-GHOST-MEMBER}",
+                ],
+            }
+        ],
+    }
+    dedup_mgrs = resolve_or_upsert_managers(db_session, alt_payload, alt_override)
+    # Ghost member was ignored completely:
+    assert "{SPAM-OR-GHOST-MEMBER}" not in dedup_mgrs
+    # Alt GUID resolved to canonical manager:
+    assert "{BRIAN-HOEL-CANONICAL}" in dedup_mgrs
+    assert "{BRIAN2-HOEL2-ALT}" not in dedup_mgrs
+    # Canonical display name is preserved (not overwritten by Brian2 Hoel2):
+    assert dedup_mgrs["{BRIAN-HOEL-CANONICAL}"].display_name == "Brian Hoel"
+
+    # Team parsing suppresses self-co-management when alias resolves to primary owner:
+    season_2025 = upsert_season_from_payload(db_session, alt_payload)
+    teams_2025 = upsert_teams_from_payload(db_session, season_2025, alt_payload, dedup_mgrs, alt_override)
+    team_1 = teams_2025[1]
+    assert team_1.manager_id == dedup_mgrs["{BRIAN-HOEL-CANONICAL}"].id
+    assert team_1.co_manager_id is None
+
 
 # ==============================================================================
 # 2. Matchup Parsing Tests

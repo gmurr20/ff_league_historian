@@ -3,7 +3,7 @@ import type {
   MetaResponse,
   EarningsLeaderboardResponse,
   StandingsResponse,
-  HeadToHeadResponse,
+  HallOfFameResponse,
   TradesTrendsResponse,
   TransactionsSummaryResponse,
 } from '@/types/api';
@@ -65,21 +65,17 @@ export async function fetchEarningsLeaderboard(
 }
 
 export async function fetchStandings(
-  season?: number | null
+  season?: number | string | null
 ): Promise<StandingsResponse> {
-  const query = season != null ? `?season=${season}` : '';
+  const query = season !== undefined ? (season !== null ? `?season=${season}` : '?season=all') : '';
   return request<StandingsResponse>(`/api/v1/standings/current${query}`);
 }
 
-export async function fetchHeadToHead(
-  managerA?: number | null,
-  managerB?: number | null
-): Promise<HeadToHeadResponse> {
-  const params = new URLSearchParams();
-  if (managerA != null) params.set('managerA', String(managerA));
-  if (managerB != null) params.set('managerB', String(managerB));
-  const queryString = params.toString() ? `?${params.toString()}` : '';
-  return request<HeadToHeadResponse>(`/api/v1/history/head-to-head${queryString}`);
+export async function fetchHallOfFame(
+  season?: number | string | null
+): Promise<HallOfFameResponse> {
+  const query = season != null ? `?season=${season}` : '';
+  return request<HallOfFameResponse>(`/api/v1/hall-of-fame${query}`);
 }
 
 export async function fetchTradeTrends(
@@ -101,7 +97,7 @@ export const apiClient = {
   fetchMeta,
   fetchEarningsLeaderboard,
   fetchStandings,
-  fetchHeadToHead,
+  fetchHallOfFame,
   fetchTradeTrends,
   fetchTransactionsSummary,
 };

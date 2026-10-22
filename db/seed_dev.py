@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from backend.database import create_db_engine, init_db
 from backend.jobs.payout_policy import load_season_payout_rules
 from backend.models import (
+    DraftPick,
     EarningsLedger,
     Manager,
     Matchup,
@@ -77,13 +78,16 @@ def seed_database(target_engine: Engine | None = None) -> dict[str, int]:
         # 7. Seed Weekly Lineups (Starters + bench with actual and projected points)
         _seed_lineups(session, seasons, teams, players)
 
-        # 8. Seed Transactions, Bidding Wars & Trades
+        # 8. Seed Draft Board Picks
+        _seed_draft_picks(session, seasons, teams, players)
+
+        # 9. Seed Transactions, Bidding Wars & Trades
         _seed_transactions_and_trades(session, seasons, teams, players)
 
-        # 9. Seed Financial Earnings Ledger ($10 wins, $5 ties, podium payouts)
+        # 10. Seed Financial Earnings Ledger ($10 wins, $5 ties, podium payouts)
         _seed_earnings_ledger(session, seasons, teams, matchups)
 
-        # 10. Seed Raw ESPN Snapshots & Sync Runs
+        # 11. Seed Raw ESPN Snapshots & Sync Runs
         _seed_raw_snapshots_and_sync_runs(session)
 
         session.commit()
@@ -96,6 +100,7 @@ def seed_database(target_engine: Engine | None = None) -> dict[str, int]:
             "players": session.query(Player).count(),
             "matchups": session.query(Matchup).count(),
             "weekly_lineups": session.query(WeeklyLineup).count(),
+            "draft_picks": session.query(DraftPick).count(),
             "transactions": session.query(Transaction).count(),
             "transaction_items": session.query(TransactionItem).count(),
             "trades": session.query(Trade).count(),
@@ -115,6 +120,7 @@ def _clear_tables(session: Session) -> None:
     session.query(Trade).delete()
     session.query(Transaction).delete()
     session.query(WeeklyLineup).delete()
+    session.query(DraftPick).delete()
     session.query(Matchup).delete()
     session.query(Team).delete()
     session.query(Player).delete()
@@ -594,7 +600,7 @@ def _seed_lineups(
     lineups: list[WeeklyLineup] = []
 
     for year in [2022, 2023, 2024]:
-        max_weeks = 7 if year == 2024 else 14
+        max_weeks = 7 if year == 2024 else 17
         for week in range(1, max_weeks + 1):
             for espn_id in range(1, 9):
                 team = teams[(year, espn_id)]
@@ -644,6 +650,46 @@ def _seed_lineups(
                     lineups.append(lineup_b)
 
     session.add_all(lineups)
+    session.flush()
+
+
+def _seed_draft_picks(
+    session: Session,
+    seasons: dict[int, Season],
+    teams: dict[tuple[int, int], Team],
+    players: dict[int, Player],
+) -> None:
+    """Seed annual draft board selections for modern and active seasons (2023, 2024)."""
+    draft_picks: list[DraftPick] = []
+
+    # Player IDs pool: 101 through 116
+    player_pool = sorted(players.keys())[:16]
+
+    for year in (2023, 2024):
+        overall = 1
+        for round_num in (1, 2):
+            team_order = range(1, 9) if round_num == 1 else range(8, 0, -1)
+            for round_pick, espn_id in enumerate(team_order, start=1):
+                team = teams[(year, espn_id)]
+                pid = player_pool[(overall - 1) % len(player_pool)]
+                is_keeper = (round_num == 1 and espn_id == 1 and year == 2024)
+
+                pick = DraftPick(
+                    season_year=year,
+                    round=round_num,
+                    round_pick=round_pick,
+                    overall_pick=overall,
+                    team_id=team.id,
+                    player_id=pid,
+                    bid_amount=0,
+                    is_keeper=is_keeper,
+                    lineup_slot_id=4 if pid % 2 == 0 else 2,
+                    auto_draft_type_id=0,
+                )
+                draft_picks.append(pick)
+                overall += 1
+
+    session.add_all(draft_picks)
     session.flush()
 
 

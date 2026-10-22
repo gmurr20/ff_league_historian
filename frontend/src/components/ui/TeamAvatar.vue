@@ -25,6 +25,10 @@ watch(
   }
 );
 
+const hasLogo = computed(() => {
+  return Boolean(props.src && !imgFailed.value);
+});
+
 const initials = computed(() => {
   const raw = (props.name || '').trim();
   if (!raw) return '?';
@@ -39,6 +43,26 @@ const initials = computed(() => {
     return words[0].slice(0, 2).toUpperCase();
   }
   return raw.slice(0, 2).toUpperCase();
+});
+
+// Deterministic aesthetic gradient and border for non-generic team initials
+const colorTheme = computed(() => {
+  const raw = (props.name || 'Team').trim();
+  let hash = 0;
+  for (let i = 0; i < raw.length; i++) {
+    hash = (hash << 5) - hash + raw.charCodeAt(i);
+    hash |= 0;
+  }
+  const palettes = [
+    { bg: 'bg-gradient-to-br from-emerald-950/80 to-slate-900', border: 'border-emerald-500/30', text: 'text-emerald-400' },
+    { bg: 'bg-gradient-to-br from-amber-950/80 to-slate-900', border: 'border-amber-500/30', text: 'text-amber-400' },
+    { bg: 'bg-gradient-to-br from-sky-950/80 to-slate-900', border: 'border-sky-500/30', text: 'text-sky-400' },
+    { bg: 'bg-gradient-to-br from-violet-950/80 to-slate-900', border: 'border-violet-500/30', text: 'text-violet-400' },
+    { bg: 'bg-gradient-to-br from-rose-950/80 to-slate-900', border: 'border-rose-500/30', text: 'text-rose-400' },
+    { bg: 'bg-gradient-to-br from-teal-950/80 to-slate-900', border: 'border-teal-500/30', text: 'text-teal-400' },
+    { bg: 'bg-gradient-to-br from-indigo-950/80 to-slate-900', border: 'border-indigo-500/30', text: 'text-indigo-400' },
+  ];
+  return palettes[Math.abs(hash) % palettes.length];
 });
 
 const sizeClasses = computed(() => {
@@ -70,12 +94,16 @@ const roundedClass = computed(() => {
 
 <template>
   <div
-    class="relative bg-slate-800/90 border border-slate-700/80 overflow-hidden shrink-0 flex items-center justify-center shadow-inner select-none"
-    :class="[sizeClasses, roundedClass]"
+    class="relative overflow-hidden shrink-0 flex items-center justify-center shadow-inner select-none transition-transform"
+    :class="[
+      sizeClasses,
+      roundedClass,
+      hasLogo ? 'bg-slate-800/90 border border-slate-700/80' : `${colorTheme.bg} border ${colorTheme.border}`
+    ]"
   >
     <img
-      v-if="src && !imgFailed"
-      :src="src"
+      v-if="hasLogo"
+      :src="src!"
       :alt="name || 'Team Avatar'"
       class="w-full h-full object-cover"
       loading="lazy"
@@ -83,7 +111,8 @@ const roundedClass = computed(() => {
     />
     <span
       v-else
-      class="font-black font-mono text-slate-300 tracking-tighter leading-none"
+      class="font-black font-mono tracking-wider leading-none"
+      :class="colorTheme.text"
     >
       {{ initials }}
     </span>

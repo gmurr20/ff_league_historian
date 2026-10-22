@@ -209,7 +209,7 @@ All endpoints return JSON under `/api/v1/*` with strict `Cache-Control: public, 
 | `GET` | `/api/v1/meta` | League metadata, season list, managers, and ingestion audit status. |
 | `GET` | `/api/v1/earnings/leaderboard` | All-time & seasonal bankroll rankings ($10 regular win, $5 tie, podium payouts). |
 | `GET` | `/api/v1/standings/current` | Season standings with All-Play record, Weekly Median, Schedule Luck, and Max PF. |
-| `GET` | `/api/v1/history/head-to-head` | Career rivalry matrix & pairwise Tale of the Tape comparator. |
+| `GET` | `/api/v1/hall-of-fame` | Championship banners & Pokémon Elite Four Hall of Fame spotlight. |
 | `GET` | `/api/v1/trades/trends` | Trade network, frequent trading partner alliances, and post-trade realized points. |
 | `GET` | `/api/v1/transactions/summary` | FAAB efficiency, waiver success/fail rates, and FAAB Bidding War receipts. |
 

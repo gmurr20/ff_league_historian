@@ -18,7 +18,7 @@ from backend.config import config_by_name
 from backend.database import SessionLocal, init_db
 from backend.routes import (
     earnings_bp,
-    history_bp,
+    hall_of_fame_bp,
     meta_bp,
     standings_bp,
     trades_bp,
@@ -52,7 +52,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     app.register_blueprint(meta_bp, url_prefix="/api/v1")
     app.register_blueprint(earnings_bp, url_prefix="/api/v1")
     app.register_blueprint(standings_bp, url_prefix="/api/v1")
-    app.register_blueprint(history_bp, url_prefix="/api/v1")
+    app.register_blueprint(hall_of_fame_bp, url_prefix="/api/v1")
     app.register_blueprint(trades_bp, url_prefix="/api/v1")
     app.register_blueprint(transactions_bp, url_prefix="/api/v1")
 

@@ -139,10 +139,15 @@ class EspnClient:
         target_league_id = league_id or self.league_id
 
         # Modern vs Legacy URL selection
+        # For seasons >= 2018, modern URL is used for active season, but ESPN archives
+        # completed seasons exclusively under leagueHistory.
+        # We try the primary endpoint and fall back to leagueHistory if access denied / not found.
+        urls_to_try: list[str] = []
         if season_year < 2018:
-            url = self.LEGACY_URL_TEMPLATE.format(league_id=target_league_id, year=season_year)
+            urls_to_try.append(self.LEGACY_URL_TEMPLATE.format(league_id=target_league_id, year=season_year))
         else:
-            url = self.MODERN_URL_TEMPLATE.format(year=season_year, league_id=target_league_id)
+            urls_to_try.append(self.MODERN_URL_TEMPLATE.format(year=season_year, league_id=target_league_id))
+            urls_to_try.append(self.LEGACY_URL_TEMPLATE.format(league_id=target_league_id, year=season_year))
 
         params: list[tuple[str, str]] = []
         if scoring_period_id is not None:
@@ -154,21 +159,39 @@ class EspnClient:
         headers = self._build_headers(x_fantasy_filter=x_fantasy_filter)
         cookies = self._build_cookies()
 
-        try:
-            resp = self.http_session.get(
-                url,
-                params=params,
-                headers=headers,
-                cookies=cookies,
-                timeout=30,
-            )
-        except requests.RequestException as exc:
-            logger.error("HTTP request to ESPN API failed: %s", exc)
-            raise
+        last_resp: requests.Response | None = None
+        for url in urls_to_try:
+            try:
+                resp = self.http_session.get(
+                    url,
+                    params=params,
+                    headers=headers,
+                    cookies=cookies,
+                    timeout=30,
+                )
+            except requests.RequestException as exc:
+                logger.error("HTTP request to ESPN API failed: %s", exc)
+                raise
 
-        if resp.status_code in (401, 403, 404):
+            last_resp = resp
+            if resp.ok:
+                data = resp.json()
+                # Legacy endpoint returns a list with single item [ { ... } ]
+                if isinstance(data, list):
+                    if not data:
+                        return None
+                    return data[0]
+                if isinstance(data, dict):
+                    return data
+                return None
+
+            # Only fallback if 401, 403, or 404 (e.g. completed season archived under leagueHistory)
+            if resp.status_code not in (401, 403, 404):
+                break
+
+        if last_resp is not None and last_resp.status_code in (401, 403, 404):
             err_msg = (
-                f"ESPN API access denied or not found (HTTP {resp.status_code}) for "
+                f"ESPN API access denied or not found (HTTP {last_resp.status_code}) for "
                 f"league {target_league_id}, season {season_year}."
             )
             if allow_inaccessible:
@@ -179,19 +202,65 @@ class EspnClient:
                 return None
             raise EspnAccessError(
                 err_msg,
-                status_code=resp.status_code,
-                response_text=resp.text,
+                status_code=last_resp.status_code,
+                response_text=last_resp.text,
             )
 
-        if not resp.ok:
-            resp.raise_for_status()
+        if last_resp is not None and not last_resp.ok:
+            last_resp.raise_for_status()
 
-        data = resp.json()
-        # Legacy endpoint returns a list with single item [ { ... } ]
-        if isinstance(data, list):
-            if not data:
-                return None
-            return data[0]
-        if isinstance(data, dict):
-            return data
         return None
+
+    def fetch_communication(
+        self,
+        season_year: int,
+        league_id: str | None = None,
+        x_fantasy_filter: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """Fetch communication topics (recent activity, trade executions, message board)."""
+        target_league_id = league_id or self.league_id
+        url = (
+            f"https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{season_year}/"
+            f"segments/0/leagues/{target_league_id}/communication/?view=kona_league_communication"
+        )
+        headers = self._build_headers(x_fantasy_filter=x_fantasy_filter)
+        cookies = self._build_cookies()
+        try:
+            resp = self.http_session.get(url, headers=headers, cookies=cookies, timeout=30)
+            if resp.ok:
+                return resp.json()
+            if resp.status_code in (401, 403, 404):
+                return None
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            logger.warning("Failed to fetch ESPN league communication: %s", exc)
+            return None
+        return None
+
+    def fetch_player_info(
+        self,
+        season_year: int,
+        player_ids: list[int],
+        league_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Fetch canonical player details (name, position, pro team, headshot) by player IDs."""
+        if not player_ids:
+            return []
+        target_league_id = league_id or self.league_id
+        url = self.MODERN_URL_TEMPLATE.format(year=season_year, league_id=target_league_id)
+        p_filter = {"players": {"filterIds": {"value": player_ids}}}
+        headers = self._build_headers(x_fantasy_filter=p_filter)
+        cookies = self._build_cookies()
+        try:
+            resp = self.http_session.get(
+                url,
+                params=[("view", "kona_player_info")],
+                headers=headers,
+                cookies=cookies,
+                timeout=30,
+            )
+            if resp.ok:
+                return resp.json().get("players", [])
+        except Exception as exc:
+            logger.warning("Failed to fetch kona_player_info: %s", exc)
+        return []
