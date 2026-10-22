@@ -21,7 +21,8 @@ const subtitle = computed(() => {
   if (props.isSingleSeason) {
     return `${props.entry.display_name} · Season ${props.seasonYear ?? ''}`;
   }
-  return `${props.entry.display_name} · ${props.entry.seasons_played} ${props.entry.seasons_played === 1 ? 'season' : 'seasons'}`;
+  const inactiveStr = !props.entry.is_active ? ' (Former)' : '';
+  return `${props.entry.display_name}${inactiveStr} · ${props.entry.seasons_played} ${props.entry.seasons_played === 1 ? 'season' : 'seasons'}`;
 });
 
 // Sorted seasons (most recent first)
@@ -77,6 +78,14 @@ const displayedBounties = computed(() => {
           <div class="min-w-0">
             <div class="flex items-center gap-1.5 flex-wrap">
               <h3 class="text-sm sm:text-base font-bold text-slate-100 truncate">{{ entry.team_name }}</h3>
+              <!-- Former / Inactive Franchise Badge -->
+              <span
+                v-if="!isSingleSeason && !entry.is_active"
+                class="inline-flex items-center text-[9px] font-mono font-bold uppercase px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700/80 shrink-0 select-none"
+                title="Former Franchise Manager — No longer active in current season"
+              >
+                FORMER
+              </span>
               <!-- Championship Stars -->
               <div
                 v-if="entry.championships > 0"

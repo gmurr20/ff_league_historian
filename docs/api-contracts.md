@@ -600,6 +600,8 @@ Returns all-time financial earnings or filtered by season.
     "weekly_win_value": 10.0,
     "leaderboard": [
       {
+        "rank": 1,
+        "is_active": true,
         "manager_id": 1,
         "display_name": "Greg Murray",
         "total_earnings": 420.0,

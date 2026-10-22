@@ -22,6 +22,18 @@ const drawerOpen = ref<boolean>(false);
 
 const isSingleSeason = computed<boolean>(() => selectedSeason.value !== null);
 
+// Franchise status filter in All-Time mode: 'active' vs 'all' (default: 'active' first)
+type InactiveFilterMode = 'active' | 'all';
+const inactiveFilter = ref<InactiveFilterMode>('active');
+
+const totalFranchisesCount = computed<number>(() => {
+  return earningsData.value?.leaderboard.length ?? 0;
+});
+
+const activeFranchisesCount = computed<number>(() => {
+  return earningsData.value?.leaderboard.filter((e) => e.is_active).length ?? 0;
+});
+
 async function loadEarnings(): Promise<void> {
   loading.value = true;
   error.value = null;
@@ -43,6 +55,7 @@ async function loadEarnings(): Promise<void> {
 watch(
   () => selectedSeason.value,
   () => {
+    inactiveFilter.value = 'active'; // Default to active first!
     loadEarnings();
   }
 );
@@ -66,8 +79,8 @@ function openManagerById(managerId: number) {
 
 <template>
   <div class="max-w-4xl mx-auto space-y-3.5 pb-20">
-    <!-- View Header Banner -->
-    <div class="flex items-center justify-between">
+    <!-- View Header Banner / Editorial Control Bar -->
+    <div class="flex items-center justify-between gap-2 flex-wrap">
       <div>
         <h2 class="text-base sm:text-lg font-black uppercase tracking-tight text-slate-100">
           Earnings Standings
@@ -75,6 +88,37 @@ function openManagerById(managerId: number) {
         <p class="text-xs text-slate-400 mt-0.5 font-mono">
           {{ isSingleSeason ? `Season ${selectedSeason} Prize Standings` : 'All-Time Bankroll Standings' }}
         </p>
+      </div>
+
+      <!-- Inactive Filter Pill (All-Time mode only) -->
+      <div
+        v-if="!isSingleSeason"
+        class="inline-flex items-center rounded-lg bg-slate-900 border border-slate-800 p-0.5 text-xs font-semibold shrink-0"
+      >
+        <button
+          type="button"
+          class="px-2.5 py-1 rounded-md transition-all text-xs font-mono"
+          :class="
+            inactiveFilter === 'active'
+              ? 'bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40 shadow-sm'
+              : 'text-slate-400 hover:text-slate-200'
+          "
+          @click="inactiveFilter = 'active'"
+        >
+          Active ({{ activeFranchisesCount }})
+        </button>
+        <button
+          type="button"
+          class="px-2.5 py-1 rounded-md transition-all text-xs font-mono"
+          :class="
+            inactiveFilter === 'all'
+              ? 'bg-slate-800 text-slate-100 font-bold border border-slate-700/60 shadow-sm'
+              : 'text-slate-400 hover:text-slate-200'
+          "
+          @click="inactiveFilter = 'all'"
+        >
+          All ({{ totalFranchisesCount }})
+        </button>
       </div>
     </div>
 
@@ -118,6 +162,7 @@ function openManagerById(managerId: number) {
         :leaderboard="earningsData.leaderboard"
         :is-single-season="isSingleSeason"
         :season-year="selectedSeason"
+        :inactive-filter="inactiveFilter"
         @open-manager="openManagerDetail"
       />
 

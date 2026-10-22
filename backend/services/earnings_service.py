@@ -62,6 +62,17 @@ def get_earnings_leaderboard(
     all_managers = session.query(Manager).filter(Manager.id.in_(manager_ids)).all()
     manager_map = {m.id: m for m in all_managers}
 
+    # Resolve active season and active managers for career/churn tracking
+    seasons = session.query(Season).order_by(Season.season_year.desc()).all()
+    active_season = next((s for s in seasons if s.is_active), None)
+    active_mgr_ids: set[int] = set()
+    if active_season:
+        active_mgr_ids = {
+            t.manager_id for t in active_season.teams if t.manager_id
+        } | {
+            t.co_manager_id for t in active_season.teams if t.co_manager_id
+        }
+
     # Group ledger entries by (manager_id, season_year)
     ledger_by_manager_season: dict[tuple[int, int], list[EarningsLedger]] = defaultdict(list)
     for entry in ledger_entries:
@@ -288,6 +299,8 @@ def get_earnings_leaderboard(
             and mgr.id == defending_champ_mgr_id
         )
 
+        is_mgr_active = bool(mgr.is_active and (not active_season or mgr.id in active_mgr_ids))
+
         leaderboard.append(
             {
                 "manager_id": mgr.id,
@@ -298,6 +311,7 @@ def get_earnings_leaderboard(
                     if latest_team and latest_team.logo_url
                     else mgr.avatar_url
                 ),
+                "is_active": is_mgr_active,
                 "total_earnings": mgr_total_earnings,
                 "weekly_earnings": mgr_total_weekly,
                 "podium_earnings": mgr_total_podium,
@@ -328,6 +342,9 @@ def get_earnings_leaderboard(
             x["display_name"].lower(),
         )
     )
+
+    for idx, item in enumerate(leaderboard, start=1):
+        item["rank"] = idx
 
     # Build weekly nuanced payouts (week-by-week high score & high loser prizes)
     target_year = season_filter

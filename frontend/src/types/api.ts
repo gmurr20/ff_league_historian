@@ -78,6 +78,8 @@ export interface ManagerSeasonBreakdown {
 export type SeasonEarningsBreakdown = ManagerSeasonBreakdown;
 
 export interface EarningsLeaderboardEntry {
+  rank: number;
+  is_active: boolean;
   manager_id: number;
   display_name: string;
   team_name: string;
