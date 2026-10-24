@@ -204,7 +204,7 @@ def sync_weekly(
                     "offset": 0,
                     "sortMessageDate": {"sortPriority": 1, "sortAsc": False},
                     "sortFor": {"sortPriority": 2, "sortAsc": False},
-                    "filterIncludeMessageTypeIds": {"value": [244, 245, 246, 290]},
+                    "filterIncludeMessageTypeIds": {"value": [224, 244, 245, 246, 284, 290]},
                 }
             }
             comm_data = espn_client.fetch_communication(
@@ -233,7 +233,7 @@ def sync_weekly(
                     missing_pids = set()
                     for t in comm_data.get("topics", []):
                         for m in t.get("messages", []):
-                            if m.get("messageTypeId") in (244, 245):
+                            if m.get("messageTypeId") in (224, 244, 245):
                                 pid = int(m.get("targetId", 0))
                                 if pid > 0 and not session.get(Player, pid):
                                     missing_pids.add(pid)
