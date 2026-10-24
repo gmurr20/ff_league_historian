@@ -21,9 +21,10 @@ RUN npm run build
 # Stage 2: NGINX Runtime
 FROM nginx:1.27-alpine AS runner
 
-# Configure default API upstream endpoint for NGINX template substitution
-ENV API_UPSTREAM=http://127.0.0.1:5000 \
-    NGINX_ENVSUBST_FILTER=API_UPSTREAM
+# Configure default port and API upstream endpoint for NGINX template substitution
+ENV PORT=80 \
+    API_UPSTREAM=http://127.0.0.1:5000 \
+    NGINX_ENVSUBST_FILTER="^(API_UPSTREAM|PORT)$"
 
 # Clean default NGINX public files
 RUN rm -rf /usr/share/nginx/html/*

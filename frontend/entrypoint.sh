@@ -1,6 +1,9 @@
 #!/bin/sh
 set -e
 
+# Default PORT to 80 if not provided by Railway
+export PORT="${PORT:-80}"
+
 # Sanitize API_UPSTREAM if empty, missing host (e.g. "http://:"), or invalid
 if [ -z "$API_UPSTREAM" ] || echo "$API_UPSTREAM" | grep -qE "(^:|://:|://$|http://:$|https://:$)"; then
   echo "[entrypoint] WARNING: API_UPSTREAM is empty or malformed ('$API_UPSTREAM')."
