@@ -31,6 +31,7 @@ from backend.jobs.deep_parsers import (
 )
 from backend.jobs.espn_client import EspnAccessError, EspnClient, get_configured_league_ids
 from backend.jobs.ledger_reconciler import reconcile_season_ledger
+from backend.jobs.media_downloader import download_and_archive_all_league_media
 from backend.jobs.parsers import (
     load_manager_overrides,
     resolve_or_upsert_managers,
@@ -101,7 +102,13 @@ def backfill_history(
 
         for year, year_snaps in sorted(by_year.items()):
             combined: dict[str, Any] = {"seasonId": year}
-            for snap in year_snaps:
+            # Deterministic ordering: process non-mCombined snapshots first,
+            # and process mCombined LAST so its canonical schedule, settings, and teams take precedence.
+            sorted_snaps = sorted(
+                year_snaps,
+                key=lambda s: (1 if s.view_name == "mCombined" else 0, s.scoring_period),
+            )
+            for snap in sorted_snaps:
                 if isinstance(snap.payload, dict):
                     if snap.view_name == "mCombined":
                         for k, v in snap.payload.items():
@@ -125,11 +132,6 @@ def backfill_history(
                                 combined[k] = v
                     else:
                         for k in (
-                            "settings",
-                            "teams",
-                            "members",
-                            "schedule",
-                            "status",
                             "players",
                             "playerPool",
                             "weekly_lineups",
@@ -157,6 +159,10 @@ def backfill_history(
                                             existing_list.append(item)
                                 else:
                                     combined[k] = snap.payload[k]
+                        # If schedule, settings, teams, status are not yet populated from mCombined, allow fallback
+                        for fallback_key in ("schedule", "settings", "teams", "members", "status"):
+                            if fallback_key not in combined and fallback_key in snap.payload:
+                                combined[fallback_key] = snap.payload[fallback_key]
 
             # Parse and upsert season domain entities
             mgr_map = resolve_or_upsert_managers(session, combined, overrides_data)
@@ -201,6 +207,12 @@ def backfill_history(
                 + len(txs)
                 + len(ledger_entries)
             )
+
+        # Archive custom team logos and manager avatars (e.g. mystique-api) into media_assets
+        try:
+            download_and_archive_all_league_media(session, client=client)
+        except Exception as media_exc:
+            logger.warning("Error archiving media assets during snapshot backfill: %s", media_exc)
 
         sync_run = SyncRun(
             run_type="BACKFILL",
@@ -444,6 +456,12 @@ def backfill_history(
             + len(txs)
             + len(ledger_entries)
         )
+
+    # Archive custom team logos and manager avatars (e.g. mystique-api) into media_assets
+    try:
+        download_and_archive_all_league_media(session, client=espn_client)
+    except Exception as media_exc:
+        logger.warning("Error archiving media assets during live backfill: %s", media_exc)
 
     sync_run = SyncRun(
         run_type="BACKFILL",

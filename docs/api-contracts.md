@@ -1076,3 +1076,18 @@ Returns manager FAAB efficiency, waiver success rates, breakdown of failure reas
     ]
   }
   ```
+
+---
+
+### 8. `GET /api/v1/media/{asset_id}`
+Streams locally archived custom team logo or manager avatar image bytes directly from the database to bypass ESPN's private client-side cookie requirements (`mystique-api.fantasy.espn.com`).
+- **Path Parameters:**
+  - `asset_id` (string, required): The deterministic asset ID (e.g. ESPN image UUID or SHA-256 hash).
+- **Headers:**
+  - `Content-Type`: `image/jpeg` or `image/png`
+  - `Cache-Control`: `public, max-age=31536000, immutable`
+  - `ETag`: `"{asset_id}"`
+- **Response:** Binary image stream.
+- **Error Responses:**
+  - `404 Not Found`: If asset ID does not exist in `media_assets`.
+

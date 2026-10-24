@@ -841,3 +841,41 @@ def test_404_not_found_handler(client: FlaskClient) -> None:
     assert res.status_code == 404
     data = res.get_json()
     assert data["error"] == "NOT_FOUND"
+
+
+# ============================================================================
+# 8. Media Asset Streaming
+# ============================================================================
+
+
+def test_media_asset_endpoint(client: FlaskClient) -> None:
+    """Verifies GET /api/v1/media/<asset_id> streams binary data with immutable cache headers."""
+    from backend.models.media import MediaAsset
+
+    # Inject a media asset into the test database
+    engine = client.application.config["SESSION_FACTORY"]
+    with engine() as session:
+        test_bytes = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01test_image_data"
+        asset = MediaAsset(
+            id="test-logo-uuid-1234",
+            original_url="https://mystique-api.fantasy.espn.com/apis/v1/domains/lm/images/test-logo-uuid-1234",
+            content_type="image/jpeg",
+            data=test_bytes,
+            byte_size=len(test_bytes),
+        )
+        session.merge(asset)
+        session.commit()
+
+    res = client.get("/api/v1/media/test-logo-uuid-1234")
+    assert res.status_code == 200
+    assert res.data == test_bytes
+    assert res.content_type == "image/jpeg"
+    assert "public" in res.headers.get("Cache-Control", "")
+    assert "immutable" in res.headers.get("Cache-Control", "")
+    assert res.headers.get("ETag") == '"test-logo-uuid-1234"'
+
+    # Verify 404 for unknown media asset
+    res_404 = client.get("/api/v1/media/nonexistent-uuid")
+    assert res_404.status_code == 404
+    data_404 = res_404.get_json()
+    assert data_404["error"] == "NOT_FOUND"

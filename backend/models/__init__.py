@@ -13,6 +13,7 @@ from backend.models.earnings import EarningsLedger
 from backend.models.lineup import WeeklyLineup
 from backend.models.manager import Manager
 from backend.models.matchup import Matchup
+from backend.models.media import MediaAsset
 from backend.models.player import Player
 from backend.models.raw_snapshot import RawEspnSnapshot
 from backend.models.season import Season
@@ -36,4 +37,5 @@ __all__ = [
     "Trade",
     "EarningsLedger",
     "SyncRun",
+    "MediaAsset",
 ]

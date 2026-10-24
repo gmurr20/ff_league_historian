@@ -33,6 +33,7 @@ from backend.jobs.ledger_reconciler import (
     reconcile_regular_season_points_ledger,
     reconcile_week_ledger,
 )
+from backend.jobs.media_downloader import download_and_archive_all_league_media
 from backend.jobs.parsers import (
     load_manager_overrides,
     resolve_or_upsert_managers,
@@ -353,6 +354,12 @@ def sync_weekly(
         season.is_active = False
         podium_entries = reconcile_podium_ledger(session, season)
         reconciled_count += len(podium_entries)
+
+    # Archive any custom mystique avatars & logos
+    try:
+        download_and_archive_all_league_media(session, client=espn_client)
+    except Exception as media_exc:
+        logger.warning("Error archiving media assets during weekly sync: %s", media_exc)
 
     sync_run = SyncRun(
         run_type="WEEKLY_CRON",

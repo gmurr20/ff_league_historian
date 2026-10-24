@@ -19,6 +19,7 @@ from backend.database import SessionLocal, init_db
 from backend.routes import (
     earnings_bp,
     hall_of_fame_bp,
+    media_bp,
     meta_bp,
     standings_bp,
     trades_bp,
@@ -55,6 +56,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     app.register_blueprint(hall_of_fame_bp, url_prefix="/api/v1")
     app.register_blueprint(trades_bp, url_prefix="/api/v1")
     app.register_blueprint(transactions_bp, url_prefix="/api/v1")
+    app.register_blueprint(media_bp, url_prefix="/api/v1")
 
     # Cache-Control hook for successful GET requests
     @app.after_request
@@ -64,7 +66,8 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             and request.path.startswith("/api/v1/")
             and 200 <= response.status_code < 400
         ):
-            response.headers["Cache-Control"] = "public, max-age=60"
+            if "Cache-Control" not in response.headers:
+                response.headers["Cache-Control"] = "public, max-age=60"
         return response
 
     # Global JSON error handlers

@@ -665,7 +665,7 @@ def upsert_matchups_from_payload(
         espn_matchup_id = int(item["id"])
         week = int(item.get("matchupPeriodId", 1))
 
-        raw_tier = item.get("playoffTierType", "NONE")
+        raw_tier = item.get("playoffTierType") or "NONE"
         matchup_type = tier_map.get(raw_tier, raw_tier)
 
         home_data = item.get("home", {})

@@ -25,8 +25,17 @@ watch(
   }
 );
 
+const resolvedSrc = computed(() => {
+  if (!props.src) return null;
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
+  if (props.src.startsWith('/api/') && baseUrl) {
+    return `${baseUrl}${props.src}`;
+  }
+  return props.src;
+});
+
 const hasLogo = computed(() => {
-  return Boolean(props.src && !imgFailed.value);
+  return Boolean(resolvedSrc.value && !imgFailed.value);
 });
 
 const initials = computed(() => {
@@ -103,7 +112,7 @@ const roundedClass = computed(() => {
   >
     <img
       v-if="hasLogo"
-      :src="src!"
+      :src="resolvedSrc!"
       :alt="name || 'Team Avatar'"
       class="w-full h-full object-cover"
       loading="lazy"

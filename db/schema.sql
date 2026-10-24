@@ -354,3 +354,20 @@ CREATE INDEX IF NOT EXISTS idx_draft_picks_team_id ON draft_picks(team_id);
 CREATE INDEX IF NOT EXISTS idx_draft_picks_player_id ON draft_picks(player_id);
 
 COMMENT ON TABLE draft_picks IS 'Annual draft board containing ordered selections, auction amounts, and keeper flags.';
+
+-- -----------------------------------------------------------------------------
+-- 14. Media Assets
+-- Archived custom team logos and manager avatars served locally to prevent client 401s.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS media_assets (
+    id VARCHAR(64) PRIMARY KEY,
+    original_url VARCHAR(512) NOT NULL UNIQUE,
+    content_type VARCHAR(64) NOT NULL DEFAULT 'image/jpeg',
+    data BYTEA NOT NULL,
+    byte_size INT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_media_assets_created_at ON media_assets(created_at);
+
+COMMENT ON TABLE media_assets IS 'Locally archived binary image assets (custom logos/avatars) to bypass ESPN client-auth requirements.';

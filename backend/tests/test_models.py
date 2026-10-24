@@ -25,6 +25,7 @@ from backend.models import (
     EarningsLedger,
     Manager,
     Matchup,
+    MediaAsset,
     Player,
     RawEspnSnapshot,
     Season,
@@ -210,6 +211,16 @@ def test_all_12_models_instantiation(session_factory: sessionmaker[Session]) -> 
         )
         session.add(draft_pick)
 
+        # 14. MediaAsset
+        media_asset = MediaAsset(
+            id="test-asset-1",
+            original_url="https://mystique-api.fantasy.espn.com/apis/v1/domains/lm/images/test-asset-1",
+            content_type="image/jpeg",
+            data=b"test-bytes",
+            byte_size=10,
+        )
+        session.add(media_asset)
+
     # Verification: check all tables have records
     with get_session(session_factory) as session:
         assert session.query(Season).count() == 1
@@ -225,6 +236,7 @@ def test_all_12_models_instantiation(session_factory: sessionmaker[Session]) -> 
         assert session.query(EarningsLedger).count() == 1
         assert session.query(RawEspnSnapshot).count() == 1
         assert session.query(SyncRun).count() == 1
+        assert session.query(MediaAsset).count() == 1
 
 
 def test_foreign_key_cascade_deletion(session_factory: sessionmaker[Session]) -> None:
