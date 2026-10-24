@@ -9,13 +9,13 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy dependency manifests
-COPY package.json package-lock.json ./
+COPY frontend/package.json frontend/package-lock.json ./
 
 # Install exact dependencies
 RUN npm ci
 
 # Copy source code and build production distribution
-COPY . ./
+COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: NGINX Runtime
@@ -32,13 +32,14 @@ RUN rm -rf /usr/share/nginx/html/*
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Copy NGINX configuration both as active conf and template for environment substitution
-COPY nginx.conf /etc/nginx/templates/default.conf.template
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY frontend/nginx.conf /etc/nginx/templates/default.conf.template
+COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 
-# Copy upstream validation script to docker-entrypoint.d (runs before 20-envsubst-on-templates.sh)
-COPY 15-validate-upstream.sh /docker-entrypoint.d/15-validate-upstream.sh
-RUN chmod +x /docker-entrypoint.d/15-validate-upstream.sh
+# Copy entrypoint wrapper to sanitize API_UPSTREAM before official docker-entrypoint.sh runs
+COPY frontend/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 80
 
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["nginx", "-g", "daemon off;"]
