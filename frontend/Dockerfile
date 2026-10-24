@@ -35,6 +35,10 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
+# Copy upstream validation script to docker-entrypoint.d (runs before 20-envsubst-on-templates.sh)
+COPY 15-validate-upstream.sh /docker-entrypoint.d/15-validate-upstream.sh
+RUN chmod +x /docker-entrypoint.d/15-validate-upstream.sh
+
 EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]
