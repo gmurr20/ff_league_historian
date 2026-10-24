@@ -19,8 +19,8 @@ export default defineConfig({
         'pwa-512x512.png',
       ],
       manifest: {
-        name: 'Fantasy Football League Historian',
-        short_name: 'FF Historian',
+        name: 'Pro-Am Historian',
+        short_name: 'Pro-Am Historian',
         description: 'Comprehensive fantasy football league historian and career records archive',
         theme_color: '#020617',
         background_color: '#020617',

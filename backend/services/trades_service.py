@@ -31,10 +31,10 @@ from backend.models.trade import Trade
 from backend.models.transaction import Transaction, TransactionItem
 
 POS_MULTIPLIER: dict[str, float] = {
-    "RB": 1.15,
-    "WR": 1.00,
+    "RB": 1.05,
+    "WR": 1.05,
     "TE": 1.10,
-    "QB": 0.85,
+    "QB": 0.90,
     "D/ST": 0.70,
     "K": 0.65,
     "FLEX": 1.00,
@@ -50,6 +50,18 @@ POSITION_BASELINES: dict[str, float] = {
     "D/ST": 6.0,
     "K": 7.0,
 }
+
+
+def _has_played_week(wl: WeeklyLineup) -> bool:
+    """Determine if the player actually recorded fantasy stats or participated in a concluded game."""
+    if float(wl.actual_points or 0.0) != 0.0:
+        return True
+    if isinstance(wl.weekly_stats, dict) and any(
+        k in wl.weekly_stats
+        for k in ("receptions", "rushing_yards", "receiving_yards", "passing_yards", "touchdowns", "fumbles", "field_goals")
+    ):
+        return True
+    return False
 
 
 def get_tier_info(rank: int | None) -> tuple[float, str | None]:
@@ -79,14 +91,15 @@ def compute_positional_ranks(
     for (s_yr, p_id), lineups in player_lineups.items():
         if s_yr != season_year:
             continue
-        pre_l = [wl for wl in lineups if wl.week < effective_start_week]
+        pre_l = [wl for wl in lineups if wl.week < effective_start_week and _has_played_week(wl)]
         if pre_l:
             pre_pts = sum(float(wl.actual_points or 0.0) for wl in pre_l)
             ppg = pre_pts / len(pre_l)
             tot_pts = pre_pts
         else:
-            tot_pts = sum(float(wl.actual_points or 0.0) for wl in lineups)
-            ppg = (tot_pts / len(lineups)) if lineups else 0.0
+            tot_l = [wl for wl in lineups if _has_played_week(wl)]
+            tot_pts = sum(float(wl.actual_points or 0.0) for wl in tot_l)
+            ppg = (tot_pts / len(tot_l)) if tot_l else 0.0
 
         p = player_map.get(p_id)
         pos = p.default_position if p and p.default_position else "FLEX"
@@ -107,8 +120,10 @@ def compute_positional_ranks(
 GRADE_POINTS: dict[str, float] = {
     "A+": 4.3,
     "A": 4.0,
+    "A-": 3.7,
     "B+": 3.3,
     "B": 3.0,
+    "B-": 2.7,
     "C+": 2.3,
     "C": 2.0,
     "C-": 1.7,
@@ -117,26 +132,53 @@ GRADE_POINTS: dict[str, float] = {
 
 
 def compute_trade_grade(side_score: float, opp_score: float) -> str:
-    """Calculate letter grade based on share of value and signed score differential."""
+    """Calculate letter grade based on share of value, starter impact, and score differential.
+
+    Avoids zero-sum penalization: high-impact trades where both sides acquire valuable,
+    starter-caliber assets are recognized as win-win moves, awarding A/A- and B+/B grades
+    rather than arbitrarily forcing one side to a C or D.
+    """
     total_score = side_score + opp_score
     signed_diff = side_score - opp_score
     share = (side_score / total_score) if total_score > 0 else 0.5
 
-    if abs(signed_diff) < 2.0:
-        return "B"
-    if signed_diff >= 35.0 or share >= 0.72:
+    # High-impact trade threshold: both sides gained significant starter / roster value
+    is_win_win_caliber = (side_score >= 30.0 and opp_score >= 30.0)
+
+    # 1. Landslide Victory (True fleecing or massive point haul)
+    if signed_diff >= 30.0 or share >= 0.68:
         return "A+"
-    if signed_diff >= 20.0 or share >= 0.64:
+
+    # 2. Strong Win (Clear winner or leading partner in high-impact trade)
+    if signed_diff >= 14.0 or share >= 0.58:
         return "A"
-    if signed_diff >= 10.0 or share >= 0.58:
+    if is_win_win_caliber and share >= 0.50:
+        return "A"
+
+    # 3. Solid Win or High-Impact Win-Win Partner
+    if signed_diff >= 5.0 or share >= 0.52:
+        return "A-"
+    if is_win_win_caliber and share >= 0.44:
+        return "A-"
+
+    # 4. Balanced & Productive Trade
+    if signed_diff >= 0.0 or share >= 0.48:
         return "B+"
-    if signed_diff >= 2.0 or share >= 0.52:
+    if is_win_win_caliber and share >= 0.38:
+        return "B+"
+
+    # 5. Moderate / Fair Trade with Minor Disadvantage
+    if signed_diff >= -8.0 or share >= 0.44:
         return "B"
-    if signed_diff <= -35.0 or share <= 0.28:
+    if signed_diff >= -14.0 or share >= 0.40:
+        return "B-"
+
+    # 6. Below Average / Unequal Exchanges
+    if signed_diff <= -35.0 or share <= 0.25:
         return "D"
-    if signed_diff <= -20.0 or share <= 0.36:
+    if signed_diff <= -25.0 or share <= 0.30:
         return "C-"
-    if signed_diff <= -10.0 or share <= 0.42:
+    if signed_diff <= -18.0 or share <= 0.35:
         return "C"
     return "C+"
 
@@ -148,12 +190,16 @@ def average_letter_grade(grades: list[str]) -> str:
     avg_pts = sum(GRADE_POINTS.get(g, 3.0) for g in grades) / len(grades)
     if avg_pts >= 4.15:
         return "A+"
-    if avg_pts >= 3.65:
+    if avg_pts >= 3.85:
         return "A"
+    if avg_pts >= 3.50:
+        return "A-"
     if avg_pts >= 3.15:
         return "B+"
-    if avg_pts >= 2.65:
+    if avg_pts >= 2.85:
         return "B"
+    if avg_pts >= 2.50:
+        return "B-"
     if avg_pts >= 2.15:
         return "C+"
     if avg_pts >= 1.85:
@@ -235,6 +281,21 @@ def _evaluate_trade(
     # Split transaction items by receiving team
     prop_assets_items = [i for i in items if i.to_team_id == prop_team.id]
     acc_assets_items = [i for i in items if i.to_team_id == acc_team.id]
+
+    # Calculate pre-trade positional counts for both teams
+    ref_week = max(1, trade.week or (effective_start_week - 1))
+
+    def _team_pos_counts(t_id: int) -> dict[str, int]:
+        counts: dict[str, int] = defaultdict(int)
+        for cand_pid, cand_p in player_map.items():
+            cand_wl = player_week_lineup.get((trade.season_year, cand_pid, ref_week))
+            if cand_wl and cand_wl.team_id == t_id:
+                counts[cand_p.default_position or "FLEX"] += 1
+        return counts
+
+    prop_team_counts = _team_pos_counts(prop_team.id)
+    acc_team_counts = _team_pos_counts(acc_team.id)
+    asset_fit_map: dict[tuple[int, int], float] = {}
 
     # Map of (player_id, receiving_team_id) -> (is_flipped, flip_week)
     flipped_map: dict[tuple[int, int], tuple[bool, int | None]] = {}
@@ -342,16 +403,17 @@ def _evaluate_trade(
                 )
 
                 all_dp_lineups = player_lineups.get((trade.season_year, dp.player_id), [])
-                pre_dp_lineups = [wl for wl in all_dp_lineups if wl.week < effective_start_week]
+                pre_dp_lineups = [wl for wl in all_dp_lineups if wl.week < effective_start_week and _has_played_week(wl)]
                 post_dp_lineups = [wl for wl in all_dp_lineups if wl.week >= effective_start_week]
+                all_dp_played = [wl for wl in all_dp_lineups if _has_played_week(wl)]
 
                 pre_trade_pts = round(sum(float(wl.actual_points) for wl in pre_dp_lineups), 2)
                 pre_trade_ppg = (
                     round(pre_trade_pts / len(pre_dp_lineups), 2) if pre_dp_lineups else 0.0
                 )
-                season_total_pts = round(sum(float(wl.actual_points) for wl in all_dp_lineups), 2)
+                season_total_pts = round(sum(float(wl.actual_points) for wl in all_dp_played), 2)
                 season_ppg = (
-                    round(season_total_pts / len(all_dp_lineups), 2) if all_dp_lineups else 0.0
+                    round(season_total_pts / len(all_dp_played), 2) if all_dp_played else 0.0
                 )
 
                 post_trade_starter_pts = round(
@@ -488,13 +550,14 @@ def _evaluate_trade(
         drafted_player_points = 0.0
 
         all_p_lineups = player_lineups.get((trade.season_year, item.player_id), [])
-        pre_p_lineups = [wl for wl in all_p_lineups if wl.week < effective_start_week]
+        pre_p_lineups = [wl for wl in all_p_lineups if wl.week < effective_start_week and _has_played_week(wl)]
         post_p_lineups = [wl for wl in all_p_lineups if wl.week >= effective_start_week]
+        all_p_played = [wl for wl in all_p_lineups if _has_played_week(wl)]
 
         pre_trade_pts = round(sum(float(wl.actual_points) for wl in pre_p_lineups), 2)
         pre_trade_ppg = round(pre_trade_pts / len(pre_p_lineups), 2) if pre_p_lineups else 0.0
-        season_total_pts = round(sum(float(wl.actual_points) for wl in all_p_lineups), 2)
-        season_ppg = round(season_total_pts / len(all_p_lineups), 2) if all_p_lineups else 0.0
+        season_total_pts = round(sum(float(wl.actual_points) for wl in all_p_played), 2)
+        season_ppg = round(season_total_pts / len(all_p_played), 2) if all_p_played else 0.0
 
         post_trade_starter_pts = round(
             sum(
@@ -575,14 +638,36 @@ def _evaluate_trade(
             2,
         )
 
+        # Positional need & excess synergy boost
+        team_counts = prop_team_counts if receiving_team.id == prop_team.id else acc_team_counts
+        is_need = False
+        if player_pos == "RB" and team_counts["RB"] <= 3:
+            is_need = True
+        elif player_pos == "WR" and team_counts["WR"] <= 3:
+            is_need = True
+        elif player_pos == "TE" and team_counts["TE"] <= 1:
+            is_need = True
+        elif player_pos == "QB" and team_counts["QB"] <= 1:
+            is_need = True
+
+        has_excess = (
+            any(team_counts[p] >= 5 for p in ("RB", "WR"))
+            or any(team_counts[p] >= 3 for p in ("QB", "TE"))
+        )
+
+        roster_fit_mult = 1.00
+        if is_need and (pos_rank is None or pos_rank <= 24 or effective_ppg >= 9.0):
+            roster_fit_mult = 1.15 if has_excess else 1.10
+        asset_fit_map[(item.player_id, receiving_team.id)] = roster_fit_mult
+
         pos_mult = POS_MULTIPLIER.get(player_pos, 1.0)
         if post_trade_weeks_played > 0 and post_trade_total_pts > 0:
             trade_score = round(
-                (post_trade_starter_pts * pos_mult * tier_mult) + roster_depth_score,
+                (post_trade_starter_pts * pos_mult * tier_mult * roster_fit_mult) + roster_depth_score,
                 2,
             )
         else:
-            base_proj = round((effective_ppg * 4.0) * pos_mult * tier_mult, 2)
+            base_proj = round((effective_ppg * 4.0) * pos_mult * tier_mult * roster_fit_mult, 2)
             trade_score = round(base_proj + roster_depth_score, 2) if ir_penalty < 0 else base_proj
 
         return {
@@ -648,8 +733,20 @@ def _evaluate_trade(
                 best_player["trade_score"] = round(best_player["trade_score"] * 1.15, 2)
                 best_player["is_stud"] = True
 
-    # Side Totals
-    faab_received_prop = int(trade.faab_from_accepter or 0)
+    # Side Totals (FAAB can only move in one direction between trading partners)
+    raw_faab_prop = int(trade.faab_from_accepter or 0)
+    raw_faab_acc = int(trade.faab_from_proposer or 0)
+    if raw_faab_prop > 0 and raw_faab_acc > 0:
+        if raw_faab_prop >= raw_faab_acc:
+            faab_received_prop = raw_faab_prop - raw_faab_acc
+            faab_received_acc = 0
+        else:
+            faab_received_acc = raw_faab_acc - raw_faab_prop
+            faab_received_prop = 0
+    else:
+        faab_received_prop = raw_faab_prop
+        faab_received_acc = raw_faab_acc
+
     faab_value_prop = round((faab_received_prop * 0.60) * season_progress, 2)
     prop_starter_pts = round(sum(a["post_trade_starter_points"] for a in prop_assets), 2)
     prop_ros_pts = round(sum(a["post_trade_total_points"] for a in prop_assets), 2)
@@ -657,7 +754,6 @@ def _evaluate_trade(
     prop_pick_val = round(sum(a["trade_score"] for a in prop_assets if a["asset_type"] == "PICK"), 2)
     prop_trade_score = round(sum(a["trade_score"] for a in prop_assets) + faab_value_prop + prop_slot_equalization, 2)
 
-    faab_received_acc = int(trade.faab_from_proposer or 0)
     faab_value_acc = round((faab_received_acc * 0.60) * season_progress, 2)
     acc_starter_pts = round(sum(a["post_trade_starter_points"] for a in acc_assets), 2)
     acc_ros_pts = round(sum(a["post_trade_total_points"] for a in acc_assets), 2)
@@ -878,8 +974,9 @@ def _evaluate_trade(
                     pos_mult = POS_MULTIPLIER.get(a["default_position"], 1.0)
                     tier_mult, _ = get_tier_info(a.get("positional_rank"))
                     stud_factor = 1.15 if a.get("is_stud") else 1.0
+                    fit_mult_a = asset_fit_map.get((a["player_id"], prop_team.id), 1.0)
                     if a["asset_type"] == "PLAYER":
-                        w_score_a += ((pts if is_st else 0.0) * pos_mult * tier_mult * stud_factor) + d_pts
+                        w_score_a += ((pts if is_st else 0.0) * pos_mult * tier_mult * stud_factor * fit_mult_a) + d_pts
                     elif a["asset_type"] == "PICK" and a["drafted_player_id"] is not None:
                         w_score_a += 0.55 * (((pts if is_st else 0.0) + d_pts) * pos_mult)
                     break
@@ -939,8 +1036,9 @@ def _evaluate_trade(
                     pos_mult = POS_MULTIPLIER.get(a["default_position"], 1.0)
                     tier_mult, _ = get_tier_info(a.get("positional_rank"))
                     stud_factor = 1.15 if a.get("is_stud") else 1.0
+                    fit_mult_b = asset_fit_map.get((a["player_id"], acc_team.id), 1.0)
                     if a["asset_type"] == "PLAYER":
-                        w_score_b += ((pts if is_st else 0.0) * pos_mult * tier_mult * stud_factor) + d_pts
+                        w_score_b += ((pts if is_st else 0.0) * pos_mult * tier_mult * stud_factor * fit_mult_b) + d_pts
                     elif a["asset_type"] == "PICK" and a["drafted_player_id"] is not None:
                         w_score_b += 0.55 * (((pts if is_st else 0.0) + d_pts) * pos_mult)
                     break

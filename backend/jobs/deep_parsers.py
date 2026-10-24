@@ -887,9 +887,25 @@ def normalize_communication_topics_to_transactions(
                 teams_in_trade.add(m.get("from"))
             if m.get("to"):
                 teams_in_trade.add(m.get("to"))
-        t_list = sorted(list(teams_in_trade))
-        prop_team = t_list[0] if len(t_list) > 0 else None
-        acc_team = t_list[1] if len(t_list) > 1 else None
+
+        # Look for matching proposal transaction in raw_txs to identify the true proposing team
+        prop_tx = next(
+            (
+                tx for tx in (raw_txs or [])
+                if str(tx.get("type", "")).upper() == "TRADE_PROPOSAL"
+                and (str(tx.get("id")) == str(tx_id) or str(tx.get("relatedTransactionId")) == str(tx_id))
+                and tx.get("teamId") in teams_in_trade
+            ),
+            None,
+        )
+        if prop_tx and prop_tx.get("teamId"):
+            prop_team = prop_tx.get("teamId")
+            other_teams = teams_in_trade - {prop_team}
+            acc_team = next(iter(other_teams)) if other_teams else None
+        else:
+            t_list = sorted(list(teams_in_trade))
+            prop_team = t_list[0] if len(t_list) > 0 else None
+            acc_team = t_list[1] if len(t_list) > 1 else None
 
         for m in msgs:
             mt = m.get("messageTypeId")
@@ -1611,10 +1627,30 @@ def upsert_transactions_from_payload(
                             trade.proposed_at = proposed_at
                         if executed_at:
                             trade.executed_at = executed_at
-                        if faab_prop > 0 or trade.faab_from_proposer is None:
+                        has_faab_data = (
+                            bool(raw.get("faabByFromTeam"))
+                            or "faabFromProposer" in raw
+                            or "faabFromAccepter" in raw
+                            or "faab_from_proposer" in raw
+                            or "faab_from_accepter" in raw
+                        )
+                        if has_faab_data:
                             trade.faab_from_proposer = faab_prop
-                        if faab_acc > 0 or trade.faab_from_accepter is None:
                             trade.faab_from_accepter = faab_acc
+                        else:
+                            if trade.faab_from_proposer is None:
+                                trade.faab_from_proposer = faab_prop
+                            if trade.faab_from_accepter is None:
+                                trade.faab_from_accepter = faab_acc
+
+                        # Bilateral invariant: net FAAB can only move in one direction
+                        if trade.faab_from_proposer > 0 and trade.faab_from_accepter > 0:
+                            if trade.faab_from_proposer >= trade.faab_from_accepter:
+                                trade.faab_from_proposer -= trade.faab_from_accepter
+                                trade.faab_from_accepter = 0
+                            else:
+                                trade.faab_from_accepter -= trade.faab_from_proposer
+                                trade.faab_from_proposer = 0
                         if isinstance(trade_summary, dict) and trade_summary:
                             trade.trade_summary = trade_summary
 
