@@ -840,8 +840,71 @@ def normalize_communication_topics_to_transactions(
                 week_ranges.append((wk, min(ts_list), max(ts_list)))
         week_ranges.sort(key=lambda r: r[0])
 
-    converted: list[dict[str, Any]] = []
+    exec_topics: list[dict[str, Any]] = []
+    prop_topics: list[dict[str, Any]] = []
+
     for t in topics:
+        msgs = t.get("messages", [])
+        m_types = {m.get("messageTypeId") for m in msgs}
+        if m_types & {244, 246}:
+            exec_topics.append(t)
+        elif 224 in m_types:
+            prop_topics.append(t)
+
+    def _topic_fingerprint(t: dict[str, Any]) -> tuple[frozenset[int], frozenset[int]]:
+        msgs = t.get("messages", [])
+        teams: set[int] = set()
+        assets: set[int] = set()
+        for m in msgs:
+            if m.get("from"):
+                teams.add(int(m.get("from")))
+            if m.get("to"):
+                teams.add(int(m.get("to")))
+            if m.get("messageTypeId") in (224, 244, 246) and m.get("targetId") is not None:
+                try:
+                    assets.add(int(m.get("targetId")))
+                except (ValueError, TypeError):
+                    pass
+        return frozenset(teams), frozenset(assets)
+
+    exec_fingerprints = [_topic_fingerprint(t) for t in exec_topics]
+
+    # For each prop topic, if it matches an exec topic, merge any FAAB (284) into the exec topic
+    # and mark prop topic as duplicate.
+    filtered_prop_topics: list[dict[str, Any]] = []
+    for pt in prop_topics:
+        p_teams, p_assets = _topic_fingerprint(pt)
+        matched_exec: dict[str, Any] | None = None
+        for i, (e_teams, e_assets) in enumerate(exec_fingerprints):
+            if p_teams == e_teams and (p_assets & e_assets):
+                matched_exec = exec_topics[i]
+                break
+
+        if matched_exec is not None:
+            # Check if matched_exec is missing FAAB and pt has FAAB (284)
+            pt_faab_msgs = [m for m in pt.get("messages", []) if m.get("messageTypeId") in (284, 290)]
+            exec_faab_msgs = [m for m in matched_exec.get("messages", []) if m.get("messageTypeId") in (284, 290)]
+            if pt_faab_msgs and not exec_faab_msgs:
+                matched_exec.setdefault("messages", []).extend(pt_faab_msgs)
+        else:
+            # Standalone proposal topic (e.g. upheld trade without a 244 topic)
+            # Only include if raw_txs confirms it was executed (e.g. TRADE_UPHOLD or TRADE_ACCEPT EXECUTED)
+            pt_id = str(pt.get("targetId") or pt.get("id"))
+            is_confirmed_executed = any(
+                (str(tx.get("id")) == pt_id or str(tx.get("relatedTransactionId")) == pt_id)
+                and (
+                    str(tx.get("status", "")).upper() == "EXECUTED"
+                    or str(tx.get("type", "")).upper() in ("TRADE_ACCEPT", "TRADE_UPHOLD")
+                )
+                for tx in (raw_txs or [])
+            )
+            if is_confirmed_executed:
+                filtered_prop_topics.append(pt)
+
+    candidate_topics = exec_topics + filtered_prop_topics
+
+    converted: list[dict[str, Any]] = []
+    for t in candidate_topics:
         msgs = t.get("messages", [])
         trade_msgs = [m for m in msgs if m.get("messageTypeId") in (224, 244, 246)]
         if not trade_msgs:
@@ -851,30 +914,22 @@ def normalize_communication_topics_to_transactions(
         ts_ms = t.get("date", 0)
         ts_sec = ts_ms / 1000.0 if ts_ms > 1e11 else float(ts_ms)
 
-        # Determine week based on messageTypeId 284 or schedule ranges
+        # Determine week based on schedule ranges or timestamp
         w = 1
-        for m in msgs:
-            if m.get("messageTypeId") == 284 and m.get("targetId"):
-                try:
-                    w = int(m.get("targetId"))
-                    break
-                except (ValueError, TypeError):
-                    pass
-        else:
-            if week_ranges and ts_sec:
-                if ts_sec < week_ranges[0][1] - 86400:
-                    w = 0
+        if week_ranges and ts_sec:
+            if ts_sec < week_ranges[0][1] - 86400:
+                w = 0
+            else:
+                for wk, start_ts, end_ts in week_ranges:
+                    if start_ts - 86400 <= ts_sec <= end_ts + 86400:
+                        w = wk
+                        break
                 else:
-                    for wk, start_ts, end_ts in week_ranges:
-                        if start_ts - 86400 <= ts_sec <= end_ts + 86400:
-                            w = wk
-                            break
-                    else:
-                        closest = min(week_ranges, key=lambda r: min(abs(ts_sec - r[1]), abs(ts_sec - r[2])))
-                        w = closest[0]
-            elif ts_sec:
-                dt = datetime.fromtimestamp(ts_sec, tz=UTC)
-                w = 0 if dt.month <= 8 else 1
+                    closest = min(week_ranges, key=lambda r: min(abs(ts_sec - r[1]), abs(ts_sec - r[2])))
+                    w = closest[0]
+        elif ts_sec:
+            dt = datetime.fromtimestamp(ts_sec, tz=UTC)
+            w = 0 if dt.month <= 8 else 1
 
         items: list[dict[str, Any]] = []
         faab_prop = 0
@@ -931,7 +986,7 @@ def normalize_communication_topics_to_transactions(
                     "fromTeamId": m.get("from"),
                     "toTeamId": 0,
                 })
-            elif mt == 290:
+            elif mt in (284, 290):
                 from_id = m.get("from")
                 if from_id is not None:
                     try:
@@ -1119,6 +1174,7 @@ def upsert_transactions_from_payload(
 
     processed_tx_ids: set[str] = set()
     upserted_transactions: list[Transaction] = []
+    valid_trade_ids: set[int] = set()
 
     for raw in raw_txs:
         espn_tx_id = str(raw.get("id", ""))
@@ -1654,8 +1710,28 @@ def upsert_transactions_from_payload(
                         if isinstance(trade_summary, dict) and trade_summary:
                             trade.trade_summary = trade_summary
 
+                    session.flush()
+                    valid_trade_ids.add(trade.id)
+
         processed_tx_ids.add(espn_tx_id)
         upserted_transactions.append(tx)
+
+    # Prune orphaned duplicate trades for this season that are no longer valid executed trades
+    if valid_trade_ids:
+        season_trades = session.query(Trade).filter_by(season_year=season.season_year).all()
+        for st in season_trades:
+            if st.id not in valid_trade_ids:
+                if st.status == "DELETED" or (st.espn_transaction_id and st.espn_transaction_id in edited_trades):
+                    continue
+                orph_txs = (
+                    session.query(Transaction)
+                    .filter_by(season_year=season.season_year, espn_transaction_id=st.espn_transaction_id)
+                    .all()
+                )
+                for otx in orph_txs:
+                    session.query(TransactionItem).filter_by(transaction_id=otx.id).delete(synchronize_session=False)
+                    session.delete(otx)
+                session.delete(st)
 
     session.flush()
     return upserted_transactions
