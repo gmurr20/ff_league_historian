@@ -189,6 +189,8 @@ def test_weekly_lineup_and_matchup_optimal_scores(db_session: Session) -> None:
     # Ingest lineups
     lineups = upsert_weekly_lineups_from_payload(db_session, season, fixture, team_map)
     assert len(lineups) > 0
+    assert "injury_status" in lineups[0].weekly_stats
+    assert "injured" in lineups[0].weekly_stats
 
     # Query Matchup 1 (Week 1, Team 1 vs Team 2)
     m1 = (

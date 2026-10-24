@@ -1,17 +1,20 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import type { EarningsLeaderboardEntry } from '@/types/api';
 import TeamAvatar from '@/components/ui/TeamAvatar.vue';
 import { ArrowUpDown } from 'lucide-vue-next';
+import { useLeagueMeta } from '@/composables/useLeagueMeta';
 
 const props = withDefaults(
   defineProps<{
     leaderboard: EarningsLeaderboardEntry[];
     isSingleSeason: boolean;
     seasonYear: number | null;
+    isCompleted?: boolean;
     inactiveFilter?: 'active' | 'all';
   }>(),
   {
+    isCompleted: undefined,
     inactiveFilter: 'active',
   }
 );
@@ -19,6 +22,25 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: 'open-manager', entry: EarningsLeaderboardEntry): void;
 }>();
+
+const { availableSeasons } = useLeagueMeta();
+
+const isSeasonCompleted = computed<boolean>(() => {
+  if (!props.isSingleSeason) {
+    return true;
+  }
+  if (props.isCompleted !== undefined) {
+    return props.isCompleted;
+  }
+  const s = availableSeasons.value.find((season) => season.season_year === props.seasonYear);
+  return s?.is_completed ?? false;
+});
+
+const singleSeasonGridCols = computed<string>(() => {
+  return isSeasonCompleted.value
+    ? 'grid-cols-[20px_1fr_46px_44px_52px] sm:grid-cols-[28px_1fr_56px_64px_68px_72px]'
+    : 'grid-cols-[20px_1fr_46px_44px_52px] sm:grid-cols-[28px_1fr_64px_68px_76px]';
+});
 
 const isAllTime = computed<boolean>(() => !props.isSingleSeason);
 
@@ -28,6 +50,9 @@ const sortCol = ref<SortColumn>('cash');
 const sortAsc = ref<boolean>(false);
 
 function toggleSort(col: SortColumn) {
+  if (col === 'podium' && props.isSingleSeason && !isSeasonCompleted.value) {
+    return;
+  }
   if (sortCol.value === col) {
     sortAsc.value = !sortAsc.value;
   } else {
@@ -36,6 +61,16 @@ function toggleSort(col: SortColumn) {
     sortAsc.value = col === 'rank';
   }
 }
+
+watch(
+  () => [props.seasonYear, isSeasonCompleted.value],
+  () => {
+    if (props.isSingleSeason && !isSeasonCompleted.value && sortCol.value === 'podium') {
+      sortCol.value = 'cash';
+      sortAsc.value = false;
+    }
+  }
+);
 
 const activeEntries = computed<EarningsLeaderboardEntry[]>(() => {
   return props.leaderboard.filter((e) => e.is_active);
@@ -164,7 +199,8 @@ const displayedFranchisesCount = computed<number>(() => {
     <!-- COLUMN HEADERS: SINGLE SEASON MODE -->
     <div
       v-if="isSingleSeason"
-      class="grid grid-cols-[20px_1fr_46px_44px_52px] sm:grid-cols-[28px_1fr_56px_64px_68px_68px_72px] items-center px-2.5 sm:px-3.5 py-2 bg-slate-900/90 border-b border-slate-800/90 text-[10px] font-mono uppercase tracking-tight sm:tracking-wider text-slate-400 select-none"
+      class="items-center px-2.5 sm:px-3.5 py-2 bg-slate-900/90 border-b border-slate-800/90 text-[10px] font-mono uppercase tracking-tight sm:tracking-wider text-slate-400 select-none grid"
+      :class="singleSeasonGridCols"
     >
       <button
         type="button"
@@ -194,6 +230,7 @@ const displayedFranchisesCount = computed<number>(() => {
         Bonus
       </button>
       <button
+        v-if="isSeasonCompleted"
         type="button"
         class="hidden sm:block text-right font-bold hover:text-slate-200 transition-colors"
         :class="sortCol === 'podium' ? 'text-amber-400' : ''"
@@ -323,7 +360,8 @@ const displayedFranchisesCount = computed<number>(() => {
           <!-- ROW: SINGLE SEASON MODE -->
           <div
             v-if="isSingleSeason"
-            class="grid grid-cols-[20px_1fr_46px_44px_52px] sm:grid-cols-[28px_1fr_56px_64px_68px_68px_72px] items-center px-2.5 sm:px-3.5 py-2.5"
+            class="items-center px-2.5 sm:px-3.5 py-2.5 grid"
+            :class="singleSeasonGridCols"
           >
             <!-- Rank -->
             <div
@@ -404,8 +442,8 @@ const displayedFranchisesCount = computed<number>(() => {
               </span>
             </div>
 
-            <!-- Podium Cash (Hidden on mobile) -->
-            <div class="hidden sm:block text-right font-mono tabular-nums">
+            <!-- Podium Cash (Hidden on mobile; Only after season is completed) -->
+            <div v-if="isSeasonCompleted" class="hidden sm:block text-right font-mono tabular-nums">
               <span
                 class="text-xs sm:text-sm font-bold"
                 :class="row.entry.podium_earnings > 0 ? 'text-amber-400' : 'text-slate-600'"

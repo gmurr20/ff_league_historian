@@ -32,6 +32,31 @@ def get_default_overrides_path() -> Path:
     return Path(__file__).resolve().parent.parent.parent / "db" / "manager_overrides.json"
 
 
+def get_trade_overrides_path() -> Path:
+    """Return the absolute path to db/trade_overrides.json."""
+    return Path(__file__).resolve().parent.parent.parent / "db" / "trade_overrides.json"
+
+
+def load_trade_overrides(overrides_path: str | Path | None = None) -> dict[str, Any]:
+    """Load commissioner trade overrides from db/trade_overrides.json."""
+    path = Path(overrides_path) if overrides_path else get_trade_overrides_path()
+    if path.is_file():
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {"deleted_trades": [], "edited_trades": {}}
+    return {"deleted_trades": [], "edited_trades": {}}
+
+
+def save_trade_overrides(data: dict[str, Any], overrides_path: str | Path | None = None) -> None:
+    """Save commissioner trade overrides to db/trade_overrides.json."""
+    path = Path(overrides_path) if overrides_path else get_trade_overrides_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+
 def load_manager_overrides(
     overrides_path: str | Path | None = None,
 ) -> dict[str, Any]:
@@ -395,6 +420,20 @@ def upsert_teams_from_payload(
     team_season_overrides = overrides.get("team_season_overrides", {})
     ignored_guids = set(overrides.get("ignored_member_guids", set()))
 
+    raw_settings = payload.get("settings")
+    settings = raw_settings if isinstance(raw_settings, dict) else {}
+    schedule_settings = (
+        settings.get("scheduleSettings")
+        if isinstance(settings.get("scheduleSettings"), dict)
+        else {}
+    )
+    divisions_list = schedule_settings.get("divisions", [])
+    division_map = {
+        int(d["id"]): str(d.get("name"))
+        for d in divisions_list
+        if isinstance(d, dict) and "id" in d and d.get("name")
+    }
+
     teams_by_espn_id: dict[int, Team] = {}
 
     for t in payload.get("teams", []):
@@ -410,6 +449,14 @@ def upsert_teams_from_payload(
         team_abbrev = t.get("abbrev")
         logo_url = t.get("logo") or t.get("logoUrl")
         division_id = t.get("divisionId")
+        division_name = (
+            t.get("divisionName")
+            or (
+                division_map.get(int(division_id))
+                if division_id is not None
+                else None
+            )
+        )
 
         # Owner resolution
         primary_guid = None
@@ -521,6 +568,7 @@ def upsert_teams_from_payload(
                 co_manager_id=co_manager.id if co_manager else None,
                 raw_owner_guids=raw_owners,
                 division_id=division_id,
+                division_name=division_name,
                 wins=wins,
                 losses=losses,
                 ties=ties,
@@ -555,6 +603,7 @@ def upsert_teams_from_payload(
             team.co_manager_id = co_manager.id if co_manager else None
             team.raw_owner_guids = raw_owners
             team.division_id = division_id
+            team.division_name = division_name
             team.wins = wins
             team.losses = losses
             team.ties = ties

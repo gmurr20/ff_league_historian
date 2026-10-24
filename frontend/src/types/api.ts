@@ -159,6 +159,14 @@ export interface WeeklyStandingPoint {
   all_play_losses: number;
   all_play_ties: number;
   all_play_win_pct: number;
+  opponent_team_id: number | null;
+  opponent_team_name: string | null;
+  opponent_team_abbrev: string | null;
+  opponent_logo_url: string | null;
+  opponent_manager_name: string | null;
+  opponent_score: number | null;
+  result: "WIN" | "LOSS" | "TIE" | "BYE" | null;
+  is_home: boolean | null;
 }
 
 export interface StandingEntry {
@@ -354,17 +362,78 @@ export interface HallOfFameResponse {
 // 5. Trades & Realized Value
 // ==========================================
 
+export interface TradeTimelineEvent {
+  week: number;
+  player_id: number;
+  player_name: string;
+  team_id: number;
+  team_name: string;
+  event_type: "INJURY_IR" | "INJURY_OUT" | "BIG_GAME" | "BENCH_BOOM" | "FLIPPED" | "TRADE_EXECUTED";
+  severity: "info" | "warning" | "danger" | "success";
+  title: string;
+  description: string;
+}
+
+export interface TradeWeeklyTrajectoryPoint {
+  week: number;
+  side_a_starter_points: number;
+  side_a_bench_points: number;
+  side_a_depth_points: number;
+  side_a_cumulative_starter_points: number;
+  side_a_cumulative_total_points: number;
+  side_a_cumulative_score: number;
+  side_b_starter_points: number;
+  side_b_bench_points: number;
+  side_b_depth_points: number;
+  side_b_cumulative_starter_points: number;
+  side_b_cumulative_total_points: number;
+  side_b_cumulative_score: number;
+  cumulative_score_differential: number;
+  leading_team_id: number | null;
+  events: TradeTimelineEvent[];
+}
+
+export interface TradeAssetWeeklyPoint {
+  week: number;
+  points: number;
+  is_starter: boolean;
+  slot_position: string;
+  on_acquiring_team: boolean;
+  injury_status: string | null;
+  is_injured: boolean;
+}
+
 export interface TradePlayerAsset {
   player_id: number;
   full_name: string;
   default_position: string;
   pro_team: string;
   headshot_url: string | null;
+  asset_type: "PLAYER" | "PICK";
   post_trade_starter_points: number;
   post_trade_weeks_started: number;
+  post_trade_total_points: number;
+  post_trade_bench_points: number;
+  post_trade_weeks_played: number;
+  roster_depth_points: number;
+  pre_trade_points: number;
+  pre_trade_ppg: number;
+  season_total_points: number;
+  season_ppg: number;
+  positional_rank: number | null;
+  tier_label: string | null;
+  vorp_per_game: number;
+  pick_round: number | null;
+  pick_number: number | null;
+  pick_round_value: number;
+  drafted_player_id: number | null;
+  drafted_player_name: string | null;
+  drafted_player_position: string | null;
+  drafted_player_headshot_url: string | null;
+  drafted_player_points: number;
+  trade_score: number;
+  weekly_breakdown: TradeAssetWeeklyPoint[];
 }
-
-export type TradeAssetReceived = TradePlayerAsset;
 
 export interface TradeSide {
   team_id: number;
@@ -374,7 +443,14 @@ export interface TradeSide {
   manager_name: string;
   assets_received: TradePlayerAsset[];
   faab_received: number;
+  faab_value: number;
   total_starter_points_gained: number;
+  total_ros_points_gained: number;
+  total_roster_depth_points_gained: number;
+  slot_equalization_points: number;
+  total_pick_value_gained: number;
+  total_trade_score: number;
+  grade: string;
 }
 
 export interface TradeDetail {
@@ -386,9 +462,12 @@ export interface TradeDetail {
   sides: TradeSide[];
   winner_manager_id: number | null;
   point_differential: number;
+  score_differential: number;
+  verdict_label: string;
+  is_projected: boolean;
+  weekly_trajectory: TradeWeeklyTrajectoryPoint[];
+  timeline_events: TradeTimelineEvent[];
 }
-
-export type TradeHistoryCard = TradeDetail;
 
 export interface TopTradePartner {
   manager_a_id: number;
@@ -400,22 +479,36 @@ export interface TopTradePartner {
   manager_b_team_name: string;
   manager_b_avatar_url: string | null;
   trade_count: number;
+  total_assets_exchanged: number;
+  total_trade_score_volume: number;
+  net_winner_manager_id: number | null;
+  net_score_differential: number;
 }
-
-export type TradePartnerPair = TopTradePartner;
 
 export interface ActiveTrader {
   manager_id: number;
   display_name: string;
   team_name: string;
   avatar_url: string | null;
+  is_active?: boolean;
   total_trades: number;
+  trades_won: number;
+  trades_lost: number;
+  trades_tied: number;
+  win_rate: number;
   players_acquired: number;
   players_traded_away: number;
+  picks_acquired: number;
+  picks_traded_away: number;
+  faab_net: number;
   net_starter_points_gained: number;
+  net_ros_points_gained: number;
+  net_roster_depth_points_gained: number;
+  net_trade_score_gained: number;
+  average_grade: string;
+  executed_waivers: number;
+  free_agent_adds: number;
 }
-
-export type ActiveTraderRow = ActiveTrader;
 
 export interface TradesTrendsResponse {
   season_filter: number | null;
@@ -425,6 +518,10 @@ export interface TradesTrendsResponse {
   trades: TradeDetail[];
 }
 
+export type TradeAssetReceived = TradePlayerAsset;
+export type TradeHistoryCard = TradeDetail;
+export type TradePartnerPair = TopTradePartner;
+export type ActiveTraderRow = ActiveTrader;
 export type TradeTrendsResponse = TradesTrendsResponse;
 
 // ==========================================
@@ -507,6 +604,14 @@ export interface TransactionItem {
   pro_team: string;
   headshot_url: string | null;
   item_type: "ADD" | "DROP" | "TRADE";
+  from_team_id?: number | null;
+  to_team_id?: number | null;
+  from_team_name?: string | null;
+  to_team_name?: string | null;
+  from_manager_id?: number | null;
+  to_manager_id?: number | null;
+  from_manager_name?: string | null;
+  to_manager_name?: string | null;
 }
 
 export type TransactionItemDetail = TransactionItem;

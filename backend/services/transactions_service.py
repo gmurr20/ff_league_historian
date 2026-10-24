@@ -41,7 +41,7 @@ def get_transactions_summary(
     mgr_map = {m.id: m.display_name for m in managers}
     mgr_avatar_map = {m.id: m.avatar_url for m in managers}
 
-    teams = session.query(Team).filter(Team.season_year == season.season_year).all()
+    teams = session.query(Team).all()
     team_map = {t.id: t for t in teams}
 
     # Pre-fetch starter lineups in this season for realized point lookups
@@ -195,7 +195,8 @@ def get_transactions_summary(
             team_txs[tx.team_id].append(tx)
 
     manager_efficiency: list[dict[str, Any]] = []
-    for team in teams:
+    season_teams = [t for t in teams if t.season_year == season.season_year]
+    for team in season_teams:
         tid = team.id
         my_txs = team_txs.get(tid, [])
 
@@ -276,17 +277,36 @@ def get_transactions_summary(
         tx_mgr_id = tx_team.manager_id if tx_team else None
         tx_mgr_name = mgr_map.get(tx_mgr_id, "") if tx_mgr_id else None
 
-        item_list = [
-            {
-                "player_id": it.player_id,
-                "full_name": it.player.full_name if it.player else "Unknown Player",
-                "default_position": it.player.default_position if it.player else "N/A",
-                "pro_team": it.player.pro_team if it.player else "FA",
-                "headshot_url": it.player.headshot_url if it.player else None,
-                "item_type": it.item_type,
-            }
-            for it in items_by_tx.get(tx.id, [])
-        ]
+        item_list = []
+        for it in items_by_tx.get(tx.id, []):
+            f_team = team_map.get(it.from_team_id) if it.from_team_id else None
+            t_team = team_map.get(it.to_team_id) if it.to_team_id else None
+            f_mgr_id = f_team.manager_id if f_team else None
+            t_mgr_id = t_team.manager_id if t_team else None
+
+            pname = it.player.full_name if it.player else "Unknown Player"
+            ppos = it.player.default_position if it.player else "N/A"
+            pro_team = it.player.pro_team if it.player else "FA"
+            pheadshot = it.player.headshot_url if it.player else None
+
+            item_list.append(
+                {
+                    "player_id": it.player_id,
+                    "full_name": pname,
+                    "default_position": ppos,
+                    "pro_team": pro_team,
+                    "headshot_url": pheadshot,
+                    "item_type": it.item_type,
+                    "from_team_id": it.from_team_id,
+                    "to_team_id": it.to_team_id,
+                    "from_team_name": f_team.team_name if f_team else None,
+                    "to_team_name": t_team.team_name if t_team else None,
+                    "from_manager_id": f_mgr_id,
+                    "to_manager_id": t_mgr_id,
+                    "from_manager_name": mgr_map.get(f_mgr_id) if f_mgr_id else None,
+                    "to_manager_name": mgr_map.get(t_mgr_id) if t_mgr_id else None,
+                }
+            )
 
         tx_exec_str = (
             tx.executed_at.isoformat().replace("+00:00", "Z")

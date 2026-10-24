@@ -3,7 +3,7 @@ import { computed } from 'vue';
 import type { BiddingWar } from '@/types/api';
 import SwipeDrawer from '@/components/ui/SwipeDrawer.vue';
 import TeamAvatar from '@/components/ui/TeamAvatar.vue';
-import { Flame, Trophy, Calendar, Hash, DollarSign, TrendingUp } from 'lucide-vue-next';
+import { Calendar, Hash, DollarSign, TrendingUp, Receipt } from 'lucide-vue-next';
 
 const props = defineProps<{
   modelValue: boolean;
@@ -91,12 +91,12 @@ const claimRoi = computed(() => {
   >
     <template #header>
       <div class="flex items-center gap-2">
-        <div class="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center">
-          <Flame class="w-4 h-4" />
+        <div class="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 flex items-center justify-center">
+          <Receipt class="w-4 h-4" />
         </div>
         <div>
           <h2 class="text-base font-black tracking-tight text-slate-100 uppercase">
-            FAAB Bidding War Receipt
+            FAAB Bidding Breakdown
           </h2>
           <p class="text-xs text-slate-400">
             Contested waiver auction bids & post-claim starter realization
@@ -210,10 +210,9 @@ const claimRoi = computed(() => {
                   </span>
                   <span
                     v-if="bid.isWinner"
-                    class="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-0.5"
+                    class="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
                   >
-                    <Trophy class="w-2.5 h-2.5" />
-                    <span>Claim Won</span>
+                    Winner
                   </span>
                 </div>
                 <div class="text-[11px] text-slate-400 truncate mt-0.5" :title="bid.manager_name">

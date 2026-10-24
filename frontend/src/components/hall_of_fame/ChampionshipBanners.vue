@@ -17,23 +17,18 @@ const emit = defineEmits<{
   <div class="relative">
     <!-- Stadium Arena Rafters Steel Truss (Ceiling structure) -->
     <div class="relative bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 rounded-2xl border border-slate-700/80 p-3 mb-2 shadow-lg">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2.5">
-          <div class="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <div class="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
             <Trophy class="w-3.5 h-3.5 fill-amber-400/30" />
           </div>
-          <div>
-            <h3 class="text-xs sm:text-sm font-black font-mono tracking-wider uppercase text-white">
-              STADIUM RAFTERS
-            </h3>
-            <p class="text-[10px] text-slate-400 font-medium">
-              Championship Banners Hanging in Arena Rafters
-            </p>
-          </div>
+          <h3 class="text-xs sm:text-sm font-black font-mono tracking-wider uppercase text-white truncate">
+            STADIUM RAFTERS
+          </h3>
         </div>
 
-        <span class="text-[11px] font-mono font-bold text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-md border border-amber-500/30">
-          {{ banners.length }} BANNERS HOISTED
+        <span class="text-[10px] sm:text-[11px] font-mono font-bold text-amber-400 bg-amber-500/10 px-2 sm:px-2.5 py-1 rounded-md border border-amber-500/30 shrink-0 whitespace-nowrap">
+          {{ banners.length }} {{ banners.length === 1 ? 'BANNER' : 'BANNERS' }} HOISTED
         </span>
       </div>
 
@@ -46,12 +41,13 @@ const emit = defineEmits<{
     <!-- Suspension Cables & Banners Row -->
     <div
       class="flex items-start gap-4 overflow-x-auto pb-4 pt-1 px-2 -mx-2 snap-x snap-mandatory scroll-smooth no-scrollbar select-none"
+      :class="banners.length <= 1 ? 'justify-center' : 'justify-start sm:justify-center'"
     >
       <div
         v-for="banner in banners"
         :key="banner.season_year"
         @click="emit('selectSeason', banner.season_year)"
-        class="group relative shrink-0 w-[175px] sm:w-[195px] snap-center cursor-pointer flex flex-col items-center transition-transform duration-200 hover:-translate-y-1"
+        class="group relative shrink-0 w-[180px] sm:w-[195px] snap-center cursor-pointer flex flex-col items-center transition-transform duration-200 hover:-translate-y-1"
       >
         <!-- Authentic Steel Suspension Cables connecting banner to ceiling rafters -->
         <div class="w-full flex justify-between px-6 mb-[-1px] z-10">

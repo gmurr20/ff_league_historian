@@ -293,6 +293,12 @@ def test_e2e_api_response_keys_match_typescript_contracts() -> None:
     assert_interface(trade["sides"][0], "TradeSide")
     assert len(trade["sides"][0]["assets_received"]) > 0
     assert_interface(trade["sides"][0]["assets_received"][0], "TradePlayerAsset")
+    assert len(trade["weekly_trajectory"]) > 0
+    assert_interface(trade["weekly_trajectory"][0], "TradeWeeklyTrajectoryPoint")
+    assert len(trade["timeline_events"]) > 0
+    assert_interface(trade["timeline_events"][0], "TradeTimelineEvent")
+    assert len(trade["sides"][0]["assets_received"][0]["weekly_breakdown"]) > 0
+    assert_interface(trade["sides"][0]["assets_received"][0]["weekly_breakdown"][0], "TradeAssetWeeklyPoint")
 
     # 7. Transactions endpoint (season=2023 with bidding wars & transaction items)
     res_tx = client.get("/api/v1/transactions/summary?season=2023")

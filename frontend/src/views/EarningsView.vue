@@ -10,7 +10,7 @@ import EarningsDetailDrawer from '@/components/earnings/EarningsDetailDrawer.vue
 import LoadingState from '@/components/ui/LoadingState.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 
-const { selectedSeason } = useLeagueMeta();
+const { selectedSeason, availableSeasons } = useLeagueMeta();
 
 const earningsData = ref<EarningsLeaderboardResponse | null>(null);
 const loading = ref<boolean>(false);
@@ -21,6 +21,14 @@ const selectedManager = ref<EarningsLeaderboardEntry | null>(null);
 const drawerOpen = ref<boolean>(false);
 
 const isSingleSeason = computed<boolean>(() => selectedSeason.value !== null);
+
+const isSeasonCompleted = computed<boolean>(() => {
+  if (selectedSeason.value === null) {
+    return true;
+  }
+  const match = availableSeasons.value.find((s) => s.season_year === selectedSeason.value);
+  return match?.is_completed ?? false;
+});
 
 // Franchise status filter in All-Time mode: 'active' vs 'all' (default: 'active' first)
 type InactiveFilterMode = 'active' | 'all';
@@ -162,6 +170,7 @@ function openManagerById(managerId: number) {
         :leaderboard="earningsData.leaderboard"
         :is-single-season="isSingleSeason"
         :season-year="selectedSeason"
+        :is-completed="isSeasonCompleted"
         :inactive-filter="inactiveFilter"
         @open-manager="openManagerDetail"
       />

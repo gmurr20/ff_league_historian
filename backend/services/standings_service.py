@@ -262,6 +262,8 @@ def get_standings(session: Session, season_year: int | None = None) -> dict[str,
             "standings": [],
         }
 
+    team_lookup: dict[int, Team] = {t.id: t for t in teams}
+
     # Fetch completed regular-season matchups
     reg_matchups = (
         session.query(Matchup)
@@ -319,6 +321,7 @@ def get_standings(session: Session, season_year: int | None = None) -> dict[str,
         week_matches = matchups_by_week[week]
         # Map team_id -> actual_score for this week
         week_team_scores: dict[int, float] = {}
+        week_matchup_details: dict[int, dict[str, Any]] = {}
 
         for m in week_matches:
             # Home team
@@ -389,12 +392,61 @@ def get_standings(session: Session, season_year: int | None = None) -> dict[str,
                 if m.is_tie or (m.winner_team_id is None and h_score == a_score):
                     cum_ties[h_id] += 1
                     cum_ties[a_id] += 1
+                    h_res = "TIE"
+                    a_res = "TIE"
                 elif m.winner_team_id == h_id or (m.winner_team_id is None and h_score > a_score):
                     cum_wins[h_id] += 1
                     cum_losses[a_id] += 1
+                    h_res = "WIN"
+                    a_res = "LOSS"
                 else:
                     cum_wins[a_id] += 1
                     cum_losses[h_id] += 1
+                    h_res = "LOSS"
+                    a_res = "WIN"
+
+                opp_a = team_lookup.get(a_id)
+                opp_h = team_lookup.get(h_id)
+
+                week_matchup_details[h_id] = {
+                    "opponent_team_id": a_id,
+                    "opponent_team_name": opp_a.team_name if opp_a else None,
+                    "opponent_team_abbrev": opp_a.team_abbrev if opp_a else None,
+                    "opponent_logo_url": (
+                        opp_a.logo_url or (opp_a.manager.avatar_url if opp_a and opp_a.manager else None)
+                        if opp_a
+                        else None
+                    ),
+                    "opponent_manager_name": opp_a.manager.display_name if opp_a and opp_a.manager else None,
+                    "opponent_score": round(a_score, 2),
+                    "result": h_res,
+                    "is_home": True,
+                }
+                week_matchup_details[a_id] = {
+                    "opponent_team_id": h_id,
+                    "opponent_team_name": opp_h.team_name if opp_h else None,
+                    "opponent_team_abbrev": opp_h.team_abbrev if opp_h else None,
+                    "opponent_logo_url": (
+                        opp_h.logo_url or (opp_h.manager.avatar_url if opp_h and opp_h.manager else None)
+                        if opp_h
+                        else None
+                    ),
+                    "opponent_manager_name": opp_h.manager.display_name if opp_h and opp_h.manager else None,
+                    "opponent_score": round(h_score, 2),
+                    "result": a_res,
+                    "is_home": False,
+                }
+            else:
+                week_matchup_details[h_id] = {
+                    "opponent_team_id": None,
+                    "opponent_team_name": None,
+                    "opponent_team_abbrev": None,
+                    "opponent_logo_url": None,
+                    "opponent_manager_name": None,
+                    "opponent_score": None,
+                    "result": "BYE",
+                    "is_home": True,
+                }
 
         if not week_team_scores:
             continue
@@ -465,6 +517,19 @@ def get_standings(session: Session, season_year: int | None = None) -> dict[str,
             ap_t = all_play_ties[tid]
             ap_tot = ap_w + ap_l + ap_t
             ap_pct = round((ap_w + 0.5 * ap_t) / ap_tot, 3) if ap_tot > 0 else 0.0
+            m_info = week_matchup_details.get(
+                tid,
+                {
+                    "opponent_team_id": None,
+                    "opponent_team_name": None,
+                    "opponent_team_abbrev": None,
+                    "opponent_logo_url": None,
+                    "opponent_manager_name": None,
+                    "opponent_score": None,
+                    "result": None,
+                    "is_home": None,
+                },
+            )
             weekly_history_by_team[tid].append(
                 {
                     "week": week,
@@ -479,6 +544,14 @@ def get_standings(session: Session, season_year: int | None = None) -> dict[str,
                     "all_play_losses": ap_l,
                     "all_play_ties": ap_t,
                     "all_play_win_pct": ap_pct,
+                    "opponent_team_id": m_info["opponent_team_id"],
+                    "opponent_team_name": m_info["opponent_team_name"],
+                    "opponent_team_abbrev": m_info["opponent_team_abbrev"],
+                    "opponent_logo_url": m_info["opponent_logo_url"],
+                    "opponent_manager_name": m_info["opponent_manager_name"],
+                    "opponent_score": m_info["opponent_score"],
+                    "result": m_info["result"],
+                    "is_home": m_info["is_home"],
                 }
             )
 
@@ -504,6 +577,7 @@ def get_standings(session: Session, season_year: int | None = None) -> dict[str,
         for p_week in playoff_weeks:
             p_matches = playoff_matchups_by_week[p_week]
             week_team_scores: dict[int, float] = {}
+            playoff_matchup_details: dict[int, dict[str, Any]] = {}
 
             # Update scores and outcomes
             for m in p_matches:
@@ -527,6 +601,66 @@ def get_standings(session: Session, season_year: int | None = None) -> dict[str,
                     )
                     if loser_id is not None:
                         cum_losses[loser_id] += 1
+
+                if m.away_team_id is not None:
+                    if m.winner_team_id == h_id:
+                        h_res = "WIN"
+                        a_res = "LOSS"
+                    elif m.winner_team_id == a_id:
+                        h_res = "LOSS"
+                        a_res = "WIN"
+                    elif m.is_tie or (m.winner_team_id is None and h_score == a_score):
+                        h_res = "TIE"
+                        a_res = "TIE"
+                    elif h_score > a_score:
+                        h_res = "WIN"
+                        a_res = "LOSS"
+                    else:
+                        h_res = "LOSS"
+                        a_res = "WIN"
+
+                    opp_a = team_lookup.get(a_id)
+                    opp_h = team_lookup.get(h_id)
+
+                    playoff_matchup_details[h_id] = {
+                        "opponent_team_id": a_id,
+                        "opponent_team_name": opp_a.team_name if opp_a else None,
+                        "opponent_team_abbrev": opp_a.team_abbrev if opp_a else None,
+                        "opponent_logo_url": (
+                            opp_a.logo_url or (opp_a.manager.avatar_url if opp_a and opp_a.manager else None)
+                            if opp_a
+                            else None
+                        ),
+                        "opponent_manager_name": opp_a.manager.display_name if opp_a and opp_a.manager else None,
+                        "opponent_score": round(a_score, 2),
+                        "result": h_res,
+                        "is_home": True,
+                    }
+                    playoff_matchup_details[a_id] = {
+                        "opponent_team_id": h_id,
+                        "opponent_team_name": opp_h.team_name if opp_h else None,
+                        "opponent_team_abbrev": opp_h.team_abbrev if opp_h else None,
+                        "opponent_logo_url": (
+                            opp_h.logo_url or (opp_h.manager.avatar_url if opp_h and opp_h.manager else None)
+                            if opp_h
+                            else None
+                        ),
+                        "opponent_manager_name": opp_h.manager.display_name if opp_h and opp_h.manager else None,
+                        "opponent_score": round(h_score, 2),
+                        "result": a_res,
+                        "is_home": False,
+                    }
+                else:
+                    playoff_matchup_details[h_id] = {
+                        "opponent_team_id": None,
+                        "opponent_team_name": None,
+                        "opponent_team_abbrev": None,
+                        "opponent_logo_url": None,
+                        "opponent_manager_name": None,
+                        "opponent_score": None,
+                        "result": "BYE",
+                        "is_home": True,
+                    }
 
             # Determine rank for each team in this playoff week with strict playoff cutline guardrails:
             # Invariant: Teams that qualified for playoffs (playoff_seed <= playoff_team_count)
@@ -633,6 +767,20 @@ def get_standings(session: Session, season_year: int | None = None) -> dict[str,
                 ap_t = last_hist["all_play_ties"] if last_hist else 0
                 ap_pct = last_hist["all_play_win_pct"] if last_hist else 0.0
 
+                p_info = playoff_matchup_details.get(
+                    tid,
+                    {
+                        "opponent_team_id": None,
+                        "opponent_team_name": None,
+                        "opponent_team_abbrev": None,
+                        "opponent_logo_url": None,
+                        "opponent_manager_name": None,
+                        "opponent_score": None,
+                        "result": None,
+                        "is_home": None,
+                    },
+                )
+
                 weekly_history_by_team[tid].append(
                     {
                         "week": p_week,
@@ -647,6 +795,14 @@ def get_standings(session: Session, season_year: int | None = None) -> dict[str,
                         "all_play_losses": ap_l,
                         "all_play_ties": ap_t,
                         "all_play_win_pct": ap_pct,
+                        "opponent_team_id": p_info["opponent_team_id"],
+                        "opponent_team_name": p_info["opponent_team_name"],
+                        "opponent_team_abbrev": p_info["opponent_team_abbrev"],
+                        "opponent_logo_url": p_info["opponent_logo_url"],
+                        "opponent_manager_name": p_info["opponent_manager_name"],
+                        "opponent_score": p_info["opponent_score"],
+                        "result": p_info["result"],
+                        "is_home": p_info["is_home"],
                     }
                 )
 
@@ -1176,6 +1332,14 @@ def get_all_time_standings(session: Session) -> dict[str, Any]:
                 "all_play_losses": 0,
                 "all_play_ties": 0,
                 "all_play_win_pct": 0.0,
+                "opponent_team_id": None,
+                "opponent_team_name": None,
+                "opponent_team_abbrev": None,
+                "opponent_logo_url": None,
+                "opponent_manager_name": None,
+                "opponent_score": None,
+                "result": None,
+                "is_home": None,
             }
             for t in mgr_teams
         ]

@@ -5,8 +5,57 @@ import type {
   StandingsResponse,
   HallOfFameResponse,
   TradesTrendsResponse,
+  TradeDetail,
   TransactionsSummaryResponse,
 } from '@/types/api';
+
+export type TradeAdminDraftPickInput = {
+  season_year?: number;
+  round: number;
+  pick_number?: number | null;
+};
+
+export type TradeAdminSideInput = {
+  team_id: number;
+  player_ids: number[];
+  draft_picks: TradeAdminDraftPickInput[];
+  faab_received: number;
+};
+
+export type TradeAdminUpdatePayload = {
+  week: number | null;
+  sides: TradeAdminSideInput[];
+};
+
+export type TradeAdminCreatePayload = {
+  season_year: number;
+  week: number;
+  sides: TradeAdminSideInput[];
+};
+
+export type TradeAdminTeamOption = {
+  team_id: number;
+  season_year: number;
+  team_name: string;
+  manager_id: number;
+  manager_name: string;
+  logo_url: string | null;
+};
+
+export type TradeAdminPlayerOption = {
+  player_id: number;
+  full_name: string;
+  default_position: string;
+  pro_team: string;
+  headshot_url: string | null;
+};
+
+export type TradeAdminOptionsResponse = {
+  seasons: number[];
+  teams: TradeAdminTeamOption[];
+  players: TradeAdminPlayerOption[];
+  deleted_trades: TradeDetail[];
+};
 
 export class ApiError extends Error {
   status: number;
@@ -92,6 +141,82 @@ export async function fetchTransactionsSummary(
   return request<TransactionsSummaryResponse>(`/api/v1/transactions/summary${query}`);
 }
 
+export async function verifyTradeAdminPassword(
+  password: string
+): Promise<{ authenticated: boolean }> {
+  return request<{ authenticated: boolean }>('/api/v1/trades/admin/verify', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Admin-Password': password,
+    },
+    body: JSON.stringify({ password }),
+  });
+}
+
+export async function fetchTradeAdminOptions(
+  password: string
+): Promise<TradeAdminOptionsResponse> {
+  return request<TradeAdminOptionsResponse>('/api/v1/trades/admin/options', {
+    headers: {
+      'X-Admin-Password': password,
+    },
+  });
+}
+
+export async function updateTradeAdmin(
+  password: string,
+  tradeId: number,
+  payload: TradeAdminUpdatePayload
+): Promise<{ message: string; trade_id: number }> {
+  return request<{ message: string; trade_id: number }>(`/api/v1/trades/${tradeId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Admin-Password': password,
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createTradeAdmin(
+  password: string,
+  payload: TradeAdminCreatePayload
+): Promise<{ message: string; trade_id: number }> {
+  return request<{ message: string; trade_id: number }>('/api/v1/trades', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Admin-Password': password,
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteTradeAdmin(
+  password: string,
+  tradeId: number
+): Promise<{ message: string; trade_id: number }> {
+  return request<{ message: string; trade_id: number }>(`/api/v1/trades/${tradeId}`, {
+    method: 'DELETE',
+    headers: {
+      'X-Admin-Password': password,
+    },
+  });
+}
+
+export async function restoreTradeAdmin(
+  password: string,
+  tradeId: number
+): Promise<{ message: string; trade_id: number }> {
+  return request<{ message: string; trade_id: number }>(`/api/v1/trades/${tradeId}/restore`, {
+    method: 'POST',
+    headers: {
+      'X-Admin-Password': password,
+    },
+  });
+}
+
 export const apiClient = {
   fetchHealth,
   fetchMeta,
@@ -100,6 +225,12 @@ export const apiClient = {
   fetchHallOfFame,
   fetchTradeTrends,
   fetchTransactionsSummary,
+  verifyTradeAdminPassword,
+  fetchTradeAdminOptions,
+  updateTradeAdmin,
+  createTradeAdmin,
+  deleteTradeAdmin,
+  restoreTradeAdmin,
 };
 
 export default apiClient;

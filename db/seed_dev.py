@@ -23,6 +23,7 @@ import sys
 from collections import defaultdict
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -630,12 +631,39 @@ def _seed_lineups(
                         actual_points=pts,
                         projected_points=proj,
                         acquisition_type="DRAFT",
-                        weekly_stats={"passing_yards": 250, "rushing_yards": 40, "touchdowns": 2},
+                        weekly_stats={
+                            "passing_yards": 250,
+                            "rushing_yards": 40,
+                            "touchdowns": 2,
+                            "injury_status": None,
+                            "injured": False,
+                        },
                     )
                     lineups.append(lineup)
 
                 for b_slot, b_pid in zip(["BE", "IR"], bench_pids, strict=False):
                     b_pts = Decimal(f"{8.00 + ((b_pid % 4) * 1.5):.2f}")
+                    if b_slot == "IR":
+                        b_stats: dict[str, Any] = {
+                            "injury_status": "INJURY_RESERVE",
+                            "injured": True,
+                        }
+                    elif (week + b_pid) % 6 == 0:
+                        b_stats = {
+                            "injury_status": "QUESTIONABLE",
+                            "injured": False,
+                        }
+                    elif (week + b_pid) % 9 == 0:
+                        b_stats = {
+                            "injury_status": "OUT",
+                            "injured": True,
+                        }
+                    else:
+                        b_stats = {
+                            "injury_status": None,
+                            "injured": False,
+                        }
+
                     lineup_b = WeeklyLineup(
                         season_year=year,
                         week=week,
@@ -646,6 +674,7 @@ def _seed_lineups(
                         actual_points=b_pts,
                         projected_points=Decimal("10.00"),
                         acquisition_type="DRAFT",
+                        weekly_stats=b_stats,
                     )
                     lineups.append(lineup_b)
 

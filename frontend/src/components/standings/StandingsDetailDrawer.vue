@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { StandingEntry } from '@/types/api';
+import type { StandingEntry, WeeklyStandingPoint } from '@/types/api';
 import SwipeDrawer from '@/components/ui/SwipeDrawer.vue';
 import TeamAvatar from '@/components/ui/TeamAvatar.vue';
 
@@ -35,6 +35,26 @@ const seasonsCount = computed(() => props.standing?.weekly_history?.length || 1)
 function formatSportsPct(pct: number): string {
   const formatted = pct.toFixed(3);
   return formatted.startsWith('0.') ? formatted.slice(1) : formatted;
+}
+
+function getMatchupTooltip(pt: WeeklyStandingPoint): string {
+  if (props.isAllTime) {
+    return `${pt.week} Season: Rank #${pt.standings_rank}, Record ${pt.wins}-${pt.losses}${pt.ties > 0 ? `-${pt.ties}` : ''}, ${pt.weekly_score.toFixed(1)} avg pts`;
+  }
+  const opp = pt.opponent_team_name ? ` ${pt.is_home === false ? '@' : 'vs'} ${pt.opponent_team_name}` : '';
+  if (pt.result === 'WIN') {
+    return `Week ${pt.week}: Won ${pt.weekly_score.toFixed(1)} - ${pt.opponent_score?.toFixed(1) ?? '—'}${opp}`;
+  }
+  if (pt.result === 'LOSS') {
+    return `Week ${pt.week}: Lost ${pt.weekly_score.toFixed(1)} - ${pt.opponent_score?.toFixed(1) ?? '—'}${opp}`;
+  }
+  if (pt.result === 'TIE') {
+    return `Week ${pt.week}: Tied ${pt.weekly_score.toFixed(1)} - ${pt.opponent_score?.toFixed(1) ?? '—'}${opp}`;
+  }
+  if (pt.result === 'BYE') {
+    return `Week ${pt.week}: Playoff Bye (${pt.weekly_score.toFixed(1)} pts)`;
+  }
+  return `Week ${pt.week}`;
 }
 
 const teamName = computed(() => props.standing?.team_name ?? 'Team Breakdown');
@@ -387,28 +407,30 @@ const totalHonorsCount = computed(() => {
         </span>
       </div>
 
-      <!-- Weekly Standings Progression Strip -->
+      <!-- Seasonal History Log (All-Time Mode) -->
       <div
-        v-if="standing.weekly_history && standing.weekly_history.length > 0"
+        v-if="props.isAllTime && standing.weekly_history && standing.weekly_history.length > 0"
         class="rounded-xl p-3 bg-[#0b101b] border border-slate-800/90 space-y-2"
       >
         <div class="flex items-center justify-between">
           <span class="text-[10px] uppercase font-mono font-bold tracking-wider text-slate-400">
-            {{ props.isAllTime ? 'Seasonal History Log' : 'Weekly Standings Log' }}
+            Seasonal History Log
           </span>
           <span class="text-[10px] font-mono text-slate-500">
-            {{ props.isAllTime ? 'Final Rank & Avg Score' : 'Rank & Weekly Score' }}
+            Final Rank & Avg Score
           </span>
         </div>
 
-        <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+        <!-- All-Time: Wrapped Seasonal History Grid (Zero Horizontal Scroll) -->
+        <div class="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-1.5">
           <div
             v-for="pt in standing.weekly_history"
             :key="pt.week"
-            class="px-2 py-1.5 rounded-lg bg-slate-900/90 border border-slate-800/80 text-center shrink-0 min-w-[54px] font-mono"
+            :title="getMatchupTooltip(pt)"
+            class="px-2 py-1.5 rounded-lg bg-slate-900/90 border border-slate-800/80 text-center font-mono"
           >
             <div class="text-[9px] text-slate-500 uppercase">
-              {{ props.isAllTime ? pt.week : `W${pt.week}` }}
+              {{ pt.week }}
             </div>
             <div
               class="text-xs font-black mt-0.5"
@@ -418,6 +440,128 @@ const totalHonorsCount = computed(() => {
             </div>
             <div class="text-[9px] text-slate-400 tabular-nums mt-0.5">
               {{ pt.weekly_score.toFixed(1) }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Weekly Matchups Schedule Grid (Single Season Mode - Mobile Wrapped, Zero Horizontal Scroll) -->
+      <div
+        v-if="!props.isAllTime && standing.weekly_history && standing.weekly_history.length > 0"
+        class="rounded-xl p-3 bg-[#0b101b] border border-slate-800/90 space-y-2.5"
+      >
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-1.5">
+            <span class="text-xs">⚔️</span>
+            <span class="text-[10px] uppercase font-mono font-bold tracking-wider text-slate-300">
+              Weekly Matchups
+            </span>
+          </div>
+          <span class="text-[10px] font-mono text-slate-500">
+            Result · Score vs Opponent
+          </span>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-1.5">
+          <div
+            v-for="pt in standing.weekly_history"
+            :key="pt.week"
+            :title="getMatchupTooltip(pt)"
+            class="px-2 py-1.5 rounded-lg bg-slate-900/95 border font-mono flex flex-col justify-between space-y-1 transition-all shadow-sm select-none"
+            :class="
+              pt.result === 'WIN'
+                ? 'border-emerald-500/35 bg-gradient-to-b from-emerald-950/25 to-slate-900/90'
+                : pt.result === 'LOSS'
+                ? 'border-rose-500/30 bg-gradient-to-b from-rose-950/25 to-slate-900/90'
+                : pt.result === 'TIE'
+                ? 'border-amber-500/30 bg-gradient-to-b from-amber-950/25 to-slate-900/90'
+                : 'border-slate-800/80'
+            "
+          >
+            <!-- Row 1: Week Label & Result Badge -->
+            <div class="flex items-center justify-between gap-1">
+              <span class="text-[9.5px] uppercase font-mono font-bold tracking-wider text-slate-400">
+                W{{ pt.week }}
+              </span>
+              <span
+                v-if="pt.result === 'WIN'"
+                class="px-1.5 py-0.2 rounded text-[9.5px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 leading-tight"
+              >
+                WIN
+              </span>
+              <span
+                v-else-if="pt.result === 'LOSS'"
+                class="px-1.5 py-0.2 rounded text-[9.5px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-400 border border-rose-500/40 leading-tight"
+              >
+                LOSS
+              </span>
+              <span
+                v-else-if="pt.result === 'TIE'"
+                class="px-1.5 py-0.2 rounded text-[9.5px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 leading-tight"
+              >
+                TIE
+              </span>
+              <span
+                v-else-if="pt.result === 'BYE'"
+                class="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider bg-slate-800 text-slate-400 border border-slate-700 leading-tight"
+              >
+                BYE
+              </span>
+              <span
+                v-else
+                class="px-1.5 py-0.2 rounded text-[9px] font-bold text-slate-500 bg-slate-800/60 leading-tight"
+              >
+                —
+              </span>
+            </div>
+
+            <!-- Row 2: Matchup Opponent (vs / @ + Avatar + Abbrev/Name) -->
+            <div class="flex items-center gap-1.5 min-w-0">
+              <div v-if="pt.opponent_team_name" class="relative shrink-0">
+                <TeamAvatar
+                  :src="pt.opponent_logo_url"
+                  :name="pt.opponent_team_name"
+                  size="xs"
+                  rounded="full"
+                  class="w-3.5 h-3.5 !text-[7px]"
+                />
+              </div>
+              <span class="text-[9.5px] text-slate-400 font-bold shrink-0">
+                {{ pt.is_home === false ? '@' : 'vs' }}
+              </span>
+              <span
+                class="text-[10.5px] font-bold text-slate-200 truncate leading-tight"
+                :title="pt.opponent_team_name ?? undefined"
+              >
+                {{ pt.opponent_team_abbrev || pt.opponent_team_name || (pt.result === 'BYE' ? 'Playoff Bye' : '—') }}
+              </span>
+            </div>
+
+            <!-- Row 3: Their Pts vs Opponent Pts -->
+            <div class="flex items-center justify-between text-[11px] sm:text-xs tabular-nums pt-1 border-t border-slate-800/70">
+              <span
+                class="font-black"
+                :class="
+                  pt.result === 'WIN'
+                    ? 'text-emerald-400'
+                    : pt.result === 'LOSS'
+                    ? 'text-slate-200'
+                    : 'text-slate-100'
+                "
+              >
+                {{ pt.weekly_score.toFixed(1) }}
+              </span>
+              <span class="text-[9px] text-slate-500 font-medium px-0.5">vs</span>
+              <span
+                class="font-medium"
+                :class="
+                  pt.result === 'LOSS'
+                    ? 'text-rose-400 font-bold'
+                    : 'text-slate-400'
+                "
+              >
+                {{ pt.opponent_score != null ? pt.opponent_score.toFixed(1) : (pt.result === 'BYE' ? '—' : '—') }}
+              </span>
             </div>
           </div>
         </div>

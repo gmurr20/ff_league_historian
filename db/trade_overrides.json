@@ -1,0 +1,41 @@
+{
+  "deleted_trades": [],
+  "edited_trades": {
+    "51056f5f-1511-40d1-a057-69a610de6092": {
+      "week": 6,
+      "sides": [
+        {
+          "team_id": 13,
+          "player_ids": [
+            4430807
+          ],
+          "draft_picks": [
+            {
+              "season_year": 2027,
+              "round": 16,
+              "pick_number": null
+            }
+          ],
+          "faab_received": 0
+        },
+        {
+          "team_id": 23,
+          "player_ids": [
+            4685382,
+            16800
+          ],
+          "draft_picks": [
+            {
+              "season_year": 2027,
+              "round": 4,
+              "pick_number": null
+            }
+          ],
+          "faab_received": 0
+        }
+      ],
+      "proposing_team_id": 13,
+      "accepting_team_id": 23
+    }
+  }
+}

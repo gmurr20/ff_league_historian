@@ -46,19 +46,19 @@ onMounted(() => {
   <div class="min-h-screen pb-24 pt-3 px-3 sm:px-6 max-w-5xl mx-auto space-y-6">
     <!-- Header Section -->
     <header class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-4">
-      <div>
+      <div class="min-w-0">
         <div class="flex items-center gap-2">
-          <div class="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.2)]">
+          <div class="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.2)] shrink-0">
             <Trophy class="w-4 h-4 fill-amber-400/40" />
           </div>
           <h1 class="text-xl sm:text-2xl font-black text-white tracking-tight">
             Hall of Fame
           </h1>
-          <span class="text-[10px] font-mono font-bold text-amber-400 bg-amber-500/15 px-2 py-0.5 rounded-full border border-amber-500/30 uppercase">
+          <span class="text-[10px] font-mono font-bold text-amber-400 bg-amber-500/15 px-2 py-0.5 rounded-full border border-amber-500/30 uppercase shrink-0">
             Legends
           </span>
         </div>
-        <p class="text-xs text-slate-400 mt-1 font-medium">
+        <p class="text-xs text-slate-400 mt-1 font-medium truncate sm:truncate-none">
           Championship Banners & Title Game Victory Spotlight
         </p>
       </div>

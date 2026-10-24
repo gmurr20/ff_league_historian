@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from backend.database import get_session, init_db
 from backend.jobs.deep_parsers import (
@@ -103,7 +104,25 @@ def backfill_history(
             for snap in year_snaps:
                 if isinstance(snap.payload, dict):
                     if snap.view_name == "mCombined":
-                        combined.update(snap.payload)
+                        for k, v in snap.payload.items():
+                            if k in ("transactions", "topics") and isinstance(v, list):
+                                existing_list = combined.setdefault(k, [])
+                                existing_ids = {
+                                    str(item.get("id") or item.get("targetId"))
+                                    for item in existing_list
+                                    if isinstance(item, dict)
+                                    and (item.get("id") is not None or item.get("targetId") is not None)
+                                }
+                                for item in v:
+                                    if isinstance(item, dict):
+                                        item_id = str(item.get("id") or item.get("targetId"))
+                                        if item_id not in existing_ids:
+                                            existing_list.append(item)
+                                            existing_ids.add(item_id)
+                                    else:
+                                        existing_list.append(item)
+                            else:
+                                combined[k] = v
                     else:
                         for k in (
                             "settings",
@@ -120,7 +139,24 @@ def backfill_history(
                             "draftDetail",
                         ):
                             if k in snap.payload:
-                                combined[k] = snap.payload[k]
+                                if k in ("transactions", "topics") and isinstance(snap.payload[k], list):
+                                    existing_list = combined.setdefault(k, [])
+                                    existing_ids = {
+                                        str(item.get("id") or item.get("targetId"))
+                                        for item in existing_list
+                                        if isinstance(item, dict)
+                                        and (item.get("id") is not None or item.get("targetId") is not None)
+                                    }
+                                    for item in snap.payload[k]:
+                                        if isinstance(item, dict):
+                                            item_id = str(item.get("id") or item.get("targetId"))
+                                            if item_id not in existing_ids:
+                                                existing_list.append(item)
+                                                existing_ids.add(item_id)
+                                        else:
+                                            existing_list.append(item)
+                                else:
+                                    combined[k] = snap.payload[k]
 
             # Parse and upsert season domain entities
             mgr_map = resolve_or_upsert_managers(session, combined, overrides_data)
@@ -331,6 +367,14 @@ def backfill_history(
                 if comm_data and comm_data.get("topics"):
                     payload = dict(payload)
                     payload["topics"] = comm_data.get("topics")
+                    snap_to_update = (
+                        session.query(RawEspnSnapshot)
+                        .filter_by(season_year=year, view_name="mCombined", scoring_period=0)
+                        .first()
+                    )
+                    if snap_to_update:
+                        snap_to_update.payload = payload
+                        flag_modified(snap_to_update, "payload")
 
                     # Fetch any missing players mentioned in communication topics
                     if hasattr(espn_client, "fetch_player_info"):
@@ -349,6 +393,12 @@ def backfill_history(
                             )
                             if players_data:
                                 upsert_players_from_payload(session, {"players": players_data})
+                                if "players" not in payload or not isinstance(payload["players"], list):
+                                    payload["players"] = []
+                                payload["players"].extend(players_data)
+                                if snap_to_update:
+                                    snap_to_update.payload = payload
+                                    flag_modified(snap_to_update, "payload")
             except Exception as comm_exc:
                 logger.debug("Skipping communication fetch: %s", comm_exc)
 
@@ -362,6 +412,7 @@ def backfill_history(
             )
             if snap_to_update:
                 snap_to_update.payload = payload
+                flag_modified(snap_to_update, "payload")
 
         players = upsert_players_from_payload(session, payload)
         draft_picks = upsert_draft_picks_from_payload(

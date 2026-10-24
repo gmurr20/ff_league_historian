@@ -9,6 +9,7 @@ Purpose:
 from __future__ import annotations
 
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from flask.testing import FlaskClient
@@ -17,7 +18,12 @@ from sqlalchemy.orm import sessionmaker
 from backend.app import create_app
 from backend.database import create_db_engine
 from backend.models.lineup import WeeklyLineup
+from backend.models.player import Player
+from backend.models.season import Season
 from backend.models.team import Team
+from backend.models.trade import Trade
+from backend.models.transaction import TransactionItem
+from backend.services.trades_service import _evaluate_trade
 from db.seed_dev import seed_database
 
 
@@ -184,6 +190,18 @@ def test_standings_current_and_derived_metrics(client: FlaskClient) -> None:
         assert isinstance(entry["championships"], int)
         assert isinstance(entry["championship_years"], list)
         assert isinstance(entry["is_defending_champion"], bool)
+
+        # Weekly history matchups validation
+        assert len(entry["weekly_history"]) > 0
+        first_week = entry["weekly_history"][0]
+        assert "opponent_team_name" in first_week
+        assert "opponent_score" in first_week
+        assert "result" in first_week
+        assert first_week["result"] in ("WIN", "LOSS", "TIE", "BYE")
+        assert "is_home" in first_week
+        if first_week["result"] != "BYE":
+            assert first_week["opponent_team_id"] is not None
+            assert first_week["opponent_score"] is not None
 
     # Defending champion validation
     assert data["defending_champion_manager_id"] is not None
@@ -378,14 +396,35 @@ def test_trades_trends_and_roi(client: FlaskClient) -> None:
     assert trade_2023 is not None
     assert len(trade_2023["sides"]) == 2
 
-    # Verify non-zero post-trade starter points were calculated for acquired assets
+    # Verify non-zero post-trade starter points and roster depth were calculated for acquired assets
     found_started_player = False
     for side in trade_2023["sides"]:
+        assert side["total_roster_depth_points_gained"] >= 0.0
         for asset in side["assets_received"]:
             if asset["post_trade_starter_points"] > 0:
                 found_started_player = True
                 assert asset["post_trade_weeks_started"] > 0
+            assert "roster_depth_points" in asset
+            assert len(asset["weekly_breakdown"]) > 0
+            wb = asset["weekly_breakdown"][0]
+            assert "injury_status" in wb
+            assert "is_injured" in wb
     assert found_started_player is True
+
+    # Verify weekly trajectory and timeline events
+    assert len(trade_2023["weekly_trajectory"]) > 0
+    traj_pt = trade_2023["weekly_trajectory"][0]
+    assert "side_a_cumulative_score" in traj_pt
+    assert "side_b_cumulative_score" in traj_pt
+    assert "cumulative_score_differential" in traj_pt
+    assert "events" in traj_pt
+
+    assert len(trade_2023["timeline_events"]) > 0
+    trade_exec_event = next(
+        (e for e in trade_2023["timeline_events"] if e["event_type"] == "TRADE_EXECUTED"), None
+    )
+    assert trade_exec_event is not None
+    assert trade_exec_event["severity"] == "info"
 
     # Active traders leaderboard
     traders = data["active_traders"]
@@ -393,6 +432,109 @@ def test_trades_trends_and_roi(client: FlaskClient) -> None:
     for tr in traders:
         assert tr["total_trades"] >= 1
         assert tr["players_acquired"] >= 1
+        assert "net_roster_depth_points_gained" in tr
+
+
+def test_trade_ir_penalty_and_trajectory_proration() -> None:
+    """Verifies IR designation triggers -20.0 penalty, downgrades grade, and drops weekly trajectory."""
+    season_2026 = Season(
+        season_year=2026,
+        league_id="test_league",
+        league_name="Test League",
+        is_active=True,
+        is_completed=False,
+        regular_season_weeks=14,
+        current_week=7,
+    )
+    team_a = Team(id=1, season_year=2026, manager_id=1, team_name="Team Alpha", wins=5, losses=2)
+    team_b = Team(id=2, season_year=2026, manager_id=2, team_name="Team Beta", wins=3, losses=4)
+    team_map = {1: team_a, 2: team_b}
+    mgr_map = {1: "Alpha Mgr", 2: "Beta Mgr"}
+    mgr_avatar_map = {1: None, 2: None}
+
+    bijan = Player(espn_player_id=101, full_name="Bijan Robinson", default_position="RB")
+    adams = Player(espn_player_id=102, full_name="Davante Adams", default_position="WR")
+    pick16 = Player(espn_player_id=-16, full_name="2027 Round 16 Pick", default_position="PICK")
+    pick4 = Player(espn_player_id=-4, full_name="2027 Round 4 Pick", default_position="PICK")
+    player_map = {101: bijan, 102: adams, -16: pick16, -4: pick4}
+
+    # Trade in Week 6: Team A gets Bijan + 2027 R16 Pick; Team B gets Adams + 2027 R4 Pick
+    trade = Trade(
+        id=99,
+        season_year=2026,
+        week=6,
+        espn_transaction_id="trade_2026_w06_bijan_adams",
+        proposing_team_id=1,
+        accepting_team_id=2,
+        status="EXECUTED",
+    )
+    item_bijan = TransactionItem(id=1, transaction_id=1, player_id=101, from_team_id=2, to_team_id=1, item_type="TRADE")
+    item_pick_a = TransactionItem(id=2, transaction_id=1, player_id=-16, from_team_id=2, to_team_id=1, item_type="TRADE")
+    item_adams = TransactionItem(id=3, transaction_id=1, player_id=102, from_team_id=1, to_team_id=2, item_type="TRADE")
+    item_pick_b = TransactionItem(id=4, transaction_id=1, player_id=-4, from_team_id=1, to_team_id=2, item_type="TRADE")
+    items = [item_bijan, item_pick_a, item_adams, item_pick_b]
+
+    # Lineups: Wk 6 both play; Wk 7 Adams is placed on IR (0 pts, IR status)
+    wl_b6 = WeeklyLineup(id=1, season_year=2026, week=6, team_id=1, player_id=101, actual_points=Decimal("15.0"), is_starter=True, slot_position="RB")
+    wl_b7 = WeeklyLineup(id=2, season_year=2026, week=7, team_id=1, player_id=101, actual_points=Decimal("12.0"), is_starter=True, slot_position="RB")
+
+    wl_a6 = WeeklyLineup(id=3, season_year=2026, week=6, team_id=2, player_id=102, actual_points=Decimal("10.0"), is_starter=True, slot_position="WR")
+    wl_a7 = WeeklyLineup(
+        id=4, season_year=2026, week=7, team_id=2, player_id=102, actual_points=Decimal("0.0"),
+        is_starter=False, slot_position="BE", weekly_stats={"injury_status": "INJURY_RESERVE", "injured": True}
+    )
+
+    scored_weeks = {(2026, 6), (2026, 7)}
+    player_lineups = {
+        (2026, 101): [wl_b6, wl_b7],
+        (2026, 102): [wl_a6, wl_a7],
+    }
+    player_week_lineup = {
+        (2026, 101, 6): wl_b6,
+        (2026, 101, 7): wl_b7,
+        (2026, 102, 6): wl_a6,
+        (2026, 102, 7): wl_a7,
+    }
+
+    detail = _evaluate_trade(
+        trade=trade,
+        team_map=team_map,
+        mgr_map=mgr_map,
+        mgr_avatar_map=mgr_avatar_map,
+        items=items,
+        scored_weeks=scored_weeks,
+        player_lineups=player_lineups,
+        player_week_lineup=player_week_lineup,
+        player_map=player_map,
+        draft_pick_map={},
+        league_size=12,
+        season_info=season_2026,
+    )
+    assert detail is not None
+
+    side_a = detail["sides"][0]
+    side_b = detail["sides"][1]
+
+    # Verify Adams has IR penalty of -20.0 in roster depth, and negative trade score
+    adams_asset = next(a for a in side_b["assets_received"] if a["player_id"] == 102)
+    assert adams_asset["roster_depth_points"] <= -18.0
+    assert adams_asset["trade_score"] < 0.0
+
+    # Verify future picks prorate along remaining season horizon (~2/9 = 22.2%)
+    pick_b_asset = next(a for a in side_b["assets_received"] if a["asset_type"] == "PICK")
+    assert pick_b_asset["trade_score"] < 15.0  # ~8.77, not 39.47
+
+    # Side B receives grade D / C-, NOT B+
+    assert side_b["grade"] in ("D", "D+", "C-")
+    assert side_a["grade"] in ("A+", "A", "A-")
+
+    # Verify weekly trajectory drops for Side B from Week 6 to Week 7 when Adams goes on IR
+    traj = detail["weekly_trajectory"]
+    assert len(traj) == 2
+    wk6_pt = traj[0]
+    wk7_pt = traj[1]
+    assert wk7_pt["side_b_cumulative_score"] < wk6_pt["side_b_cumulative_score"]
+    assert wk7_pt["leading_team_id"] == 1
 
 
 def test_trades_legacy_era_no_transactions(client: FlaskClient) -> None:
@@ -402,6 +544,186 @@ def test_trades_legacy_era_no_transactions(client: FlaskClient) -> None:
     data = res.get_json()
     assert data["has_transaction_data"] is False
     assert len(data["trades"]) == 0
+
+
+def test_trades_commissioner_admin_crud(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Verifies commissioner trade admin auth, options, editing picks/FAAB, manual creation, soft-deletion, and restoration."""
+    fake_overrides_path = tmp_path / "trade_overrides.json"
+    fake_overrides_path.write_text('{"deleted_trades": [], "edited_trades": {}}', encoding="utf-8")
+
+    monkeypatch.setattr(
+        "backend.jobs.parsers.get_trade_overrides_path",
+        lambda: fake_overrides_path,
+    )
+    monkeypatch.setattr(
+        "backend.jobs.parsers.TRADE_OVERRIDES_PATH",
+        fake_overrides_path,
+        raising=False,
+    )
+
+    repo_overrides_path = Path("db/trade_overrides.json")
+    repo_overrides_existed = repo_overrides_path.exists()
+    repo_overrides_content = repo_overrides_path.read_text(encoding="utf-8") if repo_overrides_existed else None
+
+    try:
+        # 1. Verify admin password
+        res_bad = client.post("/api/v1/trades/admin/verify", json={"password": "wrong"})
+        assert res_bad.status_code == 401
+
+        res_good = client.post("/api/v1/trades/admin/verify", json={"password": "commish"})
+        assert res_good.status_code == 200
+        assert res_good.get_json() == {"authenticated": True}
+
+        # 2. Get admin options
+        admin_headers = {"X-Admin-Password": "commish"}
+        res_opts = client.get("/api/v1/trades/admin/options", headers=admin_headers)
+        assert res_opts.status_code == 200
+        opts = res_opts.get_json()
+        assert len(opts["seasons"]) > 0
+        assert len(opts["teams"]) > 0
+        assert len(opts["players"]) > 0
+        assert "deleted_trades" in opts
+
+        # 3. Edit existing trade (2023 Week 6 trade)
+        res_trends = client.get("/api/v1/trades/trends?season=2023")
+        assert res_trends.status_code == 200
+        trends_data = res_trends.get_json()
+        trade_2023 = next(
+            (t for t in trends_data["trades"] if t["season_year"] == 2023 and t["week"] == 6),
+            None,
+        )
+        assert trade_2023 is not None
+        trade_id = trade_2023["trade_id"]
+
+        side_0 = trade_2023["sides"][0]
+        side_1 = trade_2023["sides"][1]
+        side_0_player_ids = [
+            a["player_id"]
+            for a in side_0["assets_received"]
+            if a.get("asset_type") != "PICK"
+        ]
+        side_1_player_ids = [
+            a["player_id"]
+            for a in side_1["assets_received"]
+            if a.get("asset_type") != "PICK"
+        ]
+
+        put_payload = {
+            "week": trade_2023["week"],
+            "sides": [
+                {
+                    "team_id": side_0["team_id"],
+                    "player_ids": side_0_player_ids,
+                    "draft_picks": [{"season_year": 2027, "round": 2, "pick_number": None}],
+                    "faab_received": 10,
+                },
+                {
+                    "team_id": side_1["team_id"],
+                    "player_ids": side_1_player_ids,
+                    "draft_picks": [],
+                    "faab_received": 0,
+                },
+            ],
+        }
+        res_put = client.put(
+            f"/api/v1/trades/{trade_id}",
+            json=put_payload,
+            headers=admin_headers,
+        )
+        assert res_put.status_code == 200
+
+        res_trends_updated = client.get("/api/v1/trades/trends?season=2023")
+        assert res_trends_updated.status_code == 200
+        updated_trades = res_trends_updated.get_json()["trades"]
+        updated_trade = next((t for t in updated_trades if t["trade_id"] == trade_id), None)
+        assert updated_trade is not None
+
+        updated_side_0 = updated_trade["sides"][0]
+        assert updated_side_0["faab_received"] == 10
+        assert updated_side_0["faab_value"] == 6.0
+
+        pick_asset = next(
+            (a for a in updated_side_0["assets_received"] if a.get("asset_type") == "PICK"),
+            None,
+        )
+        assert pick_asset is not None
+        assert pick_asset["full_name"] == "2027 Round 2 Pick"
+        assert pick_asset["pick_round"] == 2
+        assert pick_asset["pick_round_value"] > 0
+
+        # 4. Manual trade creation, deletion, restoration, and re-deletion
+        teams_2023 = [t for t in opts["teams"] if t["season_year"] == 2023]
+        assert len(teams_2023) >= 2
+        team_a_id = teams_2023[0]["team_id"]
+        team_b_id = teams_2023[1]["team_id"]
+
+        create_payload = {
+            "season_year": 2023,
+            "week": 7,
+            "sides": [
+                {
+                    "team_id": team_a_id,
+                    "player_ids": [],
+                    "draft_picks": [{"season_year": 2025, "round": 1, "pick_number": None}],
+                    "faab_received": 15,
+                },
+                {
+                    "team_id": team_b_id,
+                    "player_ids": [],
+                    "draft_picks": [],
+                    "faab_received": 0,
+                },
+            ],
+        }
+        res_create = client.post(
+            "/api/v1/trades",
+            json=create_payload,
+            headers=admin_headers,
+        )
+        assert res_create.status_code == 201
+        new_trade_id = res_create.get_json()["trade_id"]
+        assert new_trade_id > 0
+
+        # Delete manual trade
+        res_del = client.delete(
+            f"/api/v1/trades/{new_trade_id}",
+            headers=admin_headers,
+        )
+        assert res_del.status_code == 200
+
+        # Verify it appears in GET /api/v1/trades/admin/options deleted_trades
+        res_opts_del = client.get("/api/v1/trades/admin/options", headers=admin_headers)
+        assert res_opts_del.status_code == 200
+        deleted_trades = res_opts_del.get_json()["deleted_trades"]
+        assert any(dt["trade_id"] == new_trade_id for dt in deleted_trades)
+
+        # Restore manual trade
+        res_restore = client.post(
+            f"/api/v1/trades/{new_trade_id}/restore",
+            headers=admin_headers,
+        )
+        assert res_restore.status_code == 200
+
+        # Verify it is restored (no longer in deleted_trades)
+        res_opts_restored = client.get("/api/v1/trades/admin/options", headers=admin_headers)
+        assert res_opts_restored.status_code == 200
+        deleted_after_restore = res_opts_restored.get_json()["deleted_trades"]
+        assert not any(dt["trade_id"] == new_trade_id for dt in deleted_after_restore)
+
+        # Delete manual trade again
+        res_del_again = client.delete(
+            f"/api/v1/trades/{new_trade_id}",
+            headers=admin_headers,
+        )
+        assert res_del_again.status_code == 200
+
+    finally:
+        if not repo_overrides_existed and repo_overrides_path.exists():
+            repo_overrides_path.unlink()
+        elif repo_overrides_existed and repo_overrides_content is not None:
+            repo_overrides_path.write_text(repo_overrides_content, encoding="utf-8")
 
 
 # ============================================================================

@@ -18,6 +18,7 @@ import sys
 from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from backend.database import get_session, init_db
 from backend.jobs.deep_parsers import (
@@ -214,6 +215,18 @@ def sync_weekly(
             if comm_data and comm_data.get("topics"):
                 payload = dict(payload)
                 payload["topics"] = comm_data.get("topics")
+                snap_to_update = (
+                    session.query(RawEspnSnapshot)
+                    .filter_by(
+                        season_year=active_season.season_year,
+                        view_name="mCombined",
+                        scoring_period=0,
+                    )
+                    .first()
+                )
+                if snap_to_update:
+                    snap_to_update.payload = payload
+                    flag_modified(snap_to_update, "payload")
 
                 # Fetch any missing players mentioned in communication topics
                 if hasattr(espn_client, "fetch_player_info"):
@@ -232,6 +245,12 @@ def sync_weekly(
                         )
                         if players_data:
                             upsert_players_from_payload(session, {"players": players_data})
+                            if "players" not in payload or not isinstance(payload["players"], list):
+                                payload["players"] = []
+                            payload["players"].extend(players_data)
+                            if snap_to_update:
+                                snap_to_update.payload = payload
+                                flag_modified(snap_to_update, "payload")
         except Exception as comm_exc:
             logger.debug("Skipping communication fetch: %s", comm_exc)
 
@@ -256,6 +275,27 @@ def sync_weekly(
                     scoring_period_id=w,
                 )
                 if sp_payload and isinstance(sp_payload, dict):
+                    # Archive raw weekly boxscore snapshot
+                    sp_snap = (
+                        session.query(RawEspnSnapshot)
+                        .filter_by(
+                            season_year=active_season.season_year,
+                            view_name="mBoxscore",
+                            scoring_period=w,
+                        )
+                        .first()
+                    )
+                    if sp_snap:
+                        sp_snap.payload = sp_payload
+                    else:
+                        session.add(
+                            RawEspnSnapshot(
+                                season_year=active_season.season_year,
+                                view_name="mBoxscore",
+                                scoring_period=w,
+                                payload=sp_payload,
+                            )
+                        )
                     upsert_players_from_payload(session, sp_payload)
                     upsert_weekly_lineups_from_payload(
                         session, season, sp_payload, team_map, weeks=[w]

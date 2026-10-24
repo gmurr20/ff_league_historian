@@ -40,12 +40,18 @@ from backend.jobs.parsers import (
 )
 from backend.jobs.payout_policy import load_season_payout_rules
 from backend.jobs.sync_weekly import sync_weekly
+from backend.models.draft import DraftPick
 from backend.models.earnings import EarningsLedger
+from backend.models.lineup import WeeklyLineup
 from backend.models.manager import Manager
 from backend.models.matchup import Matchup
+from backend.models.player import Player
 from backend.models.raw_snapshot import RawEspnSnapshot
 from backend.models.season import Season
+from backend.models.sync_run import SyncRun
 from backend.models.team import Team
+from backend.models.trade import Trade
+from backend.models.transaction import Transaction, TransactionItem
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -988,3 +994,172 @@ def test_espn_client_error_handling() -> None:
     with pytest.raises(EspnAccessError) as exc_info:
         client.fetch_league(season_year=2020, allow_inaccessible=False)
     assert exc_info.value.status_code == 401
+
+
+# ==============================================================================
+# 8. Full Multi-Run Idempotency Audit
+# ==============================================================================
+
+
+def test_backfill_and_sync_multi_run_idempotency_audit(db_session: Session) -> None:
+    """Verifies that running backfill_history or sync_weekly multiple times is 100% idempotent.
+
+    Asserts:
+      1. Running live backfill_history 3 times results in identical table counts with 0 duplicates.
+      2. Running backfill_history --from-snapshots 2 times results in identical table counts.
+      3. Running sync_weekly 3 times on the active season produces identical table counts.
+      4. raw_espn_snapshots are preserved and updated without constraint violations.
+    """
+    f2022 = load_fixture("espn_league_2022.json")
+    f2023 = load_fixture("espn_deep_2023.json")
+    f2023["draftDetail"] = {
+        "drafted": True,
+        "picks": [
+            {
+                "overallPickNumber": 1,
+                "roundId": 1,
+                "roundPickNumber": 1,
+                "teamId": 1,
+                "playerId": 101,
+                "bidAmount": 0,
+                "keeper": False,
+            },
+            {
+                "overallPickNumber": 2,
+                "roundId": 1,
+                "roundPickNumber": 2,
+                "teamId": 2,
+                "playerId": 102,
+                "bidAmount": 0,
+                "keeper": False,
+            },
+        ],
+    }
+    f2024 = load_fixture("espn_league_2024.json")
+
+    mock_client = MockEspnClient({2022: f2022, 2023: f2023, 2024: f2024})
+
+    def get_table_counts() -> dict[str, int]:
+        return {
+            "seasons": db_session.query(Season).count(),
+            "managers": db_session.query(Manager).count(),
+            "teams": db_session.query(Team).count(),
+            "players": db_session.query(Player).count(),
+            "matchups": db_session.query(Matchup).count(),
+            "weekly_lineups": db_session.query(WeeklyLineup).count(),
+            "transactions": db_session.query(Transaction).count(),
+            "transaction_items": db_session.query(TransactionItem).count(),
+            "trades": db_session.query(Trade).count(),
+            "draft_picks": db_session.query(DraftPick).count(),
+            "earnings_ledger": db_session.query(EarningsLedger).count(),
+            "raw_espn_snapshots": db_session.query(RawEspnSnapshot).count(),
+        }
+
+    # --- Step 1: Live Backfill Run #1 ---
+    run_1 = backfill_history(
+        session=db_session,
+        from_snapshots=False,
+        from_year=2022,
+        to_year=2023,
+        league_id="12345678",
+        client=mock_client,
+    )
+    assert run_1.status == "SUCCESS"
+    counts_run_1 = get_table_counts()
+
+    # Verify entities were actually created
+    assert counts_run_1["seasons"] == 2
+    assert counts_run_1["teams"] == 12  # 8 in 2022 + 4 in 2023 deep fixture
+    assert counts_run_1["players"] > 0
+    assert counts_run_1["matchups"] > 0
+    assert counts_run_1["weekly_lineups"] > 0
+    assert counts_run_1["transactions"] > 0
+    assert counts_run_1["trades"] > 0
+    assert counts_run_1["draft_picks"] > 0
+    assert counts_run_1["earnings_ledger"] > 0
+    assert counts_run_1["raw_espn_snapshots"] >= 2
+
+    # --- Step 2: Live Backfill Run #2 (immediate re-run) ---
+    run_2 = backfill_history(
+        session=db_session,
+        from_snapshots=False,
+        from_year=2022,
+        to_year=2023,
+        league_id="12345678",
+        client=mock_client,
+    )
+    assert run_2.status == "SUCCESS"
+    counts_run_2 = get_table_counts()
+    assert counts_run_1 == counts_run_2, f"Live backfill run 2 created duplicate records: diff={set(counts_run_2.items()) - set(counts_run_1.items())}"
+
+    # --- Step 3: Live Backfill Run #3 (third re-run) ---
+    run_3 = backfill_history(
+        session=db_session,
+        from_snapshots=False,
+        from_year=2022,
+        to_year=2023,
+        league_id="12345678",
+        client=mock_client,
+    )
+    assert run_3.status == "SUCCESS"
+    counts_run_3 = get_table_counts()
+    assert counts_run_1 == counts_run_3, "Live backfill run 3 created duplicate records"
+
+    # --- Step 4: Snapshot Replay Run #1 (--from-snapshots) ---
+    mock_client.crawl_call_counts.clear()
+    snap_run_1 = backfill_history(
+        session=db_session,
+        from_snapshots=True,
+        from_year=2022,
+        to_year=2023,
+        league_id="12345678",
+        client=mock_client,
+    )
+    assert snap_run_1.status == "SUCCESS"
+    assert len(mock_client.crawl_call_counts) == 0, "Snapshot replay hit network unexpectedly"
+    counts_snap_1 = get_table_counts()
+    assert counts_run_1 == counts_snap_1, "Snapshot replay 1 caused record drift"
+
+    # --- Step 5: Snapshot Replay Run #2 ---
+    snap_run_2 = backfill_history(
+        session=db_session,
+        from_snapshots=True,
+        from_year=2022,
+        to_year=2023,
+        league_id="12345678",
+        client=mock_client,
+    )
+    assert snap_run_2.status == "SUCCESS"
+    counts_snap_2 = get_table_counts()
+    assert counts_run_1 == counts_snap_2, "Snapshot replay 2 caused record drift"
+
+    # --- Step 6: Active Season Weekly Cron Multiple Runs ---
+    # First, initialize the active 2024 season
+    mgr_map = resolve_or_upsert_managers(db_session, f2024)
+    s2024 = upsert_season_from_payload(db_session, f2024)
+    t2024 = upsert_teams_from_payload(db_session, s2024, f2024, mgr_map)
+    upsert_matchups_from_payload(db_session, s2024, f2024, t2024)
+    db_session.commit()
+
+    # Sync weekly run 1
+    weekly_run_1 = sync_weekly(session=db_session, client=mock_client)
+    assert weekly_run_1.status == "SUCCESS"
+    weekly_counts_1 = get_table_counts()
+
+    # Sync weekly run 2 (e.g. Thursday run after Tuesday run, or rerun on same day)
+    weekly_run_2 = sync_weekly(session=db_session, client=mock_client)
+    assert weekly_run_2.status == "SUCCESS"
+    weekly_counts_2 = get_table_counts()
+    assert weekly_counts_1 == weekly_counts_2, "Weekly sync run 2 duplicated data"
+
+    # Sync weekly run 3
+    weekly_run_3 = sync_weekly(session=db_session, client=mock_client)
+    assert weekly_run_3.status == "SUCCESS"
+    weekly_counts_3 = get_table_counts()
+    assert weekly_counts_1 == weekly_counts_3, "Weekly sync run 3 duplicated data"
+
+    # Verify sync_runs logged all executions cleanly
+    all_runs = db_session.query(SyncRun).all()
+    assert len(all_runs) == 8  # 3 live backfills + 2 snapshot replays + 3 weekly syncs
+    assert all(r.status == "SUCCESS" for r in all_runs)
+

@@ -70,6 +70,14 @@ def get_meta(session: Session) -> dict[str, Any]:
         for s in seasons
     ]
 
+    active_mgr_ids: set[int] = set()
+    if active_season:
+        active_mgr_ids = {
+            t.manager_id for t in active_season.teams if t.manager_id
+        } | {
+            t.co_manager_id for t in active_season.teams if t.co_manager_id
+        }
+
     managers_query = session.query(Manager).order_by(Manager.display_name.asc()).all()
     managers = [
         {
@@ -77,7 +85,7 @@ def get_meta(session: Session) -> dict[str, Any]:
             "espn_member_id": m.espn_member_id,
             "display_name": m.display_name,
             "avatar_url": m.avatar_url,
-            "is_active": m.is_active,
+            "is_active": bool(m.is_active and (not active_season or m.id in active_mgr_ids)),
         }
         for m in managers_query
     ]
