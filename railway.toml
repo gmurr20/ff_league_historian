@@ -7,15 +7,6 @@
 # 4. Weekly Sync Cron Worker: Incremental rolling sync (backend.jobs.sync_weekly)
 # 5. One-Time Historical Backfill: Historical ingestion job (backend.jobs.backfill_history)
 
-[build]
-builder = "DOCKERFILE"
-dockerfilePath = "backend/Dockerfile"
-
-[deploy]
-startCommand = "gunicorn -c backend/gunicorn.conf.py \"backend.app:create_app()\""
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 5
-
 # ------------------------------------------------------------------------------
 # Service 1: PostgreSQL 16 Database Service
 # ------------------------------------------------------------------------------
