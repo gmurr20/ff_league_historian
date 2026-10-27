@@ -16,13 +16,13 @@ const standingsData = ref<StandingsResponse | null>(null);
 const loading = ref<boolean>(false);
 const error = ref<string | null>(null);
 
-// Dynamic Trophy / Championship Title (generic across leagues, defaulting to "The Paulie" if not set)
+// Dynamic Trophy / Championship Title (generic across leagues, defaulting to "The Pauley" if not set)
 const trophyTitle = computed<string>(() => {
   const envTrophy = (import.meta.env.VITE_TROPHY_NAME as string | undefined)?.trim();
   if (envTrophy) return envTrophy;
   const league = meta.value?.league_name || '';
-  if (league.toLowerCase().includes('paulie')) return 'The Paulie';
-  return 'The Paulie';
+  if (league.toLowerCase().includes('pauley')) return 'The Pauley';
+  return 'The Pauley';
 });
 
 // All-Time vs Single Season Mode
