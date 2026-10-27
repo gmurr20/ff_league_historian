@@ -13,7 +13,7 @@ const props = withDefaults(
   }>(),
   {
     regularSeasonWeeks: 14,
-    trophyName: 'The Paulie',
+    trophyName: 'The Pauley',
     selectedTeamId: null,
   }
 );
