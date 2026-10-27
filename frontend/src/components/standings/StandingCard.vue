@@ -12,7 +12,7 @@ const props = withDefaults(
     trophyName?: string;
   }>(),
   {
-    trophyName: 'The Paulie',
+    trophyName: 'The Pauley',
   }
 );
 
