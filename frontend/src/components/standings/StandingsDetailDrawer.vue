@@ -21,7 +21,7 @@ const props = withDefaults(
   {
     isCompleted: false,
     seasonYear: undefined,
-    trophyName: 'The Paulie',
+    trophyName: 'The Pauley',
     isAllTime: false,
   }
 );
