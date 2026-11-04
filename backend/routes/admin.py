@@ -77,6 +77,7 @@ def trigger_backfill() -> tuple[Any, int]:
             )
 
 
+
 @admin_bp.route("/admin/sync", methods=["POST"])
 def trigger_sync() -> tuple[Any, int]:
     """Execute rolling weekly sync for the active season."""
@@ -113,3 +114,44 @@ def trigger_sync() -> tuple[Any, int]:
                 jsonify({"error": "INTERNAL_ERROR", "message": str(e)}),
                 500,
             )
+
+
+@admin_bp.route("/admin/diagnose", methods=["GET"])
+def diagnose() -> tuple[Any, int]:
+    """Return database diagnostic state for trades, transactions, and snapshots."""
+    session_factory = current_app.config.get("SESSION_FACTORY", SessionLocal)
+    with session_factory() as session:
+        from backend.models.raw_snapshot import RawEspnSnapshot
+        from backend.models.trade import Trade
+        from backend.models.transaction import Transaction
+
+        trades = session.query(Trade).all()
+        trade_txs = session.query(Transaction).filter_by(transaction_type="TRADE").all()
+        snapshots = session.query(
+            RawEspnSnapshot.season_year, RawEspnSnapshot.view_name, RawEspnSnapshot.scoring_period
+        ).all()
+
+        return (
+            jsonify(
+                {
+                    "trade_records": [
+                        {"id": t.id, "espn_id": t.espn_transaction_id, "week": t.week, "status": t.status}
+                        for t in trades
+                    ],
+                    "trade_transactions": [
+                        {
+                            "id": x.id,
+                            "espn_id": x.espn_transaction_id,
+                            "week": x.week,
+                            "status": x.status,
+                            "related": x.related_espn_transaction_id,
+                        }
+                        for x in trade_txs
+                    ],
+                    "snapshots_count": len(snapshots),
+                    "snapshots": [f"{s[0]}_{s[1]}_{s[2]}" for s in snapshots],
+                }
+            ),
+            200,
+        )
+

@@ -981,3 +981,11 @@ def test_admin_backfill_and_sync_endpoints(client: FlaskClient) -> None:
     data_sync = res_sync.get_json()
     assert data_sync["status"] == "SUCCESS"
 
+    # Diagnose endpoint
+    res_diag = client.get("/api/v1/admin/diagnose")
+    assert res_diag.status_code == 200
+    data_diag = res_diag.get_json()
+    assert "trade_records" in data_diag
+    assert "trade_transactions" in data_diag
+
+

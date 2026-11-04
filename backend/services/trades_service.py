@@ -1225,6 +1225,12 @@ def _reconcile_missing_trades(session: Session) -> None:
             existing_espn_ids.add(tx.espn_transaction_id)
             session.flush()
 
+    try:
+        session.commit()
+    except Exception:
+        session.rollback()
+
+
 
 def get_trades_trends(
     session: Session, season_filter: int | None = None
