@@ -1,5 +1,7 @@
 {
-  "deleted_trades": [],
+  "deleted_trades": [
+    "ee64229b-8b7c-4e92-9abf-c5e52bade74e"
+  ],
   "edited_trades": {
     "51056f5f-1511-40d1-a057-69a610de6092": {
       "week": 6,

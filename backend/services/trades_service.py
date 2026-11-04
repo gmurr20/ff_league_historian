@@ -1165,10 +1165,72 @@ def _evaluate_trade(
     }
 
 
+def _reconcile_missing_trades(session: Session) -> None:
+    """Ensure any executed trade Transaction in the database has a corresponding Trade entity."""
+    from backend.jobs.parsers import load_trade_overrides
+
+    trade_overrides = load_trade_overrides()
+    deleted_ids = set(trade_overrides.get("deleted_trades", []))
+
+    executed_txs = (
+        session.query(Transaction)
+        .filter(
+            Transaction.transaction_type == "TRADE",
+            Transaction.status == "EXECUTED",
+        )
+        .all()
+    )
+    if not executed_txs:
+        return
+
+    existing_trades = session.query(Trade).all()
+    existing_espn_ids = {t.espn_transaction_id for t in existing_trades}
+
+    for tx in executed_txs:
+        if tx.espn_transaction_id in deleted_ids or (
+            tx.related_espn_transaction_id and tx.related_espn_transaction_id in deleted_ids
+        ):
+            tx.status = "CANCELED"
+            continue
+
+        if tx.espn_transaction_id in existing_espn_ids or (
+            tx.related_espn_transaction_id and tx.related_espn_transaction_id in existing_espn_ids
+        ):
+            continue
+
+        from_tids = {it.from_team_id for it in tx.items if it.from_team_id}
+        to_tids = {it.to_team_id for it in tx.items if it.to_team_id}
+        all_tids = sorted(list(from_tids | to_tids))
+        if len(all_tids) >= 2:
+            prop_id = all_tids[0]
+            acc_id = all_tids[1]
+            if tx.team_id and tx.team_id in all_tids:
+                prop_id = tx.team_id
+                acc_id = next(tid for tid in all_tids if tid != prop_id)
+
+            trade = Trade(
+                season_year=tx.season_year,
+                week=tx.week or 1,
+                espn_transaction_id=tx.espn_transaction_id,
+                proposing_team_id=prop_id,
+                accepting_team_id=acc_id,
+                status="EXECUTED",
+                proposed_at=tx.proposed_at or tx.executed_at,
+                executed_at=tx.executed_at,
+                faab_from_proposer=0,
+                faab_from_accepter=0,
+                trade_summary={},
+            )
+            session.add(trade)
+            existing_espn_ids.add(tx.espn_transaction_id)
+            session.flush()
+
+
 def get_trades_trends(
     session: Session, season_filter: int | None = None
 ) -> dict[str, Any]:
     """Calculate trade volumes, partner networks, and retrospective autopsy scores."""
+    _reconcile_missing_trades(session)
     seasons = session.query(Season).all()
     season_map = {s.season_year: s for s in seasons}
     has_transaction_data = True

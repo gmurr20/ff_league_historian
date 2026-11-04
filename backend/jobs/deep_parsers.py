@@ -860,9 +860,9 @@ def normalize_communication_topics_to_transactions(
         teams: set[int] = set()
         assets: set[int] = set()
         for m in msgs:
-            if m.get("from"):
+            if m.get("from") and int(m.get("from")) > 0:
                 teams.add(int(m.get("from")))
-            if m.get("to"):
+            if m.get("to") and int(m.get("to")) > 0:
                 teams.add(int(m.get("to")))
             if m.get("messageTypeId") in (224, 244, 246) and m.get("targetId") is not None:
                 try:
@@ -1206,6 +1206,21 @@ def upsert_transactions_from_payload(
             )
             if cand_trade:
                 cand_trade.status = "DELETED"
+            cand_txs = (
+                session.query(Transaction)
+                .filter(
+                    Transaction.season_year == season.season_year,
+                    or_(
+                        Transaction.espn_transaction_id == espn_tx_id,
+                        Transaction.espn_transaction_id == str(related_id),
+                        Transaction.related_espn_transaction_id == espn_tx_id,
+                        Transaction.related_espn_transaction_id == str(related_id),
+                    ),
+                )
+                .all()
+            )
+            for ctx in cand_txs:
+                ctx.status = "CANCELED"
             continue
 
         # Skip intermediate proposals/declines/veto-votes and unexecuted pending claims
@@ -1271,12 +1286,6 @@ def upsert_transactions_from_payload(
         else:
             w = sp
 
-        # Incremental filter by week or scoring period
-        if weeks is not None and w not in weeks:
-            continue
-        if scoring_periods is not None and sp not in scoring_periods:
-            continue
-
         # Normalize type
         if raw_type in ("FREEAGENT", "FREE_AGENT", "FA"):
             tx_type = "FREE_AGENT"
@@ -1291,6 +1300,13 @@ def upsert_transactions_from_payload(
             tx_type = "TRADE"
         else:
             tx_type = raw_type
+
+        # Incremental filter by week or scoring period (waivers and adds only; never skip trades)
+        if tx_type != "TRADE":
+            if weeks is not None and w not in weeks:
+                continue
+            if scoring_periods is not None and sp not in scoring_periods:
+                continue
 
         # Normalize status & failure reason
         failure_reason: str | None = None

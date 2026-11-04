@@ -140,5 +140,29 @@ def init_db(target_engine: Engine | None = None) -> None:
                 "WHERE entry_type IN ('WEEKLY_WIN', 'WEEKLY_TIE')"
             )
         )
+        # Cancel any transactions and trades registered in deleted_trades overrides
+        try:
+            from backend.jobs.parsers import load_trade_overrides
+
+            overrides = load_trade_overrides()
+            deleted_ids = overrides.get("deleted_trades", [])
+            for del_id in deleted_ids:
+                conn.execute(
+                    text(
+                        "UPDATE transactions SET status = 'CANCELED' "
+                        "WHERE espn_transaction_id = :del_id "
+                        "OR related_espn_transaction_id = :del_id"
+                    ),
+                    {"del_id": str(del_id)},
+                )
+                conn.execute(
+                    text(
+                        "UPDATE trades SET status = 'DELETED' "
+                        "WHERE espn_transaction_id = :del_id"
+                    ),
+                    {"del_id": str(del_id)},
+                )
+        except Exception:
+            pass
         conn.commit()
 

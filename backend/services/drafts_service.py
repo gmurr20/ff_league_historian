@@ -22,6 +22,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from backend.jobs.parsers import load_trade_overrides
 from backend.models.draft import DraftPick, DraftSettings, TradedDraftPick
 from backend.models.manager import Manager
 from backend.models.player import Player
@@ -180,6 +181,9 @@ def _build_future_draft_data(
             pick_lookup_by_round_orig_tid[(round_num, orig_team.id)] = pick_data
 
     # 3. Query and Apply Traded Draft Picks for this future season
+    trade_overrides = load_trade_overrides()
+    deleted_trade_ids = set(trade_overrides.get("deleted_trades", []))
+
     traded_picks_records = (
         session.query(TradedDraftPick, TransactionItem, Transaction)
         .join(TransactionItem, TradedDraftPick.transaction_item_id == TransactionItem.id)
@@ -212,6 +216,10 @@ def _build_future_draft_data(
     processed_item_ids: set[int] = set()
 
     for traded_pick, item, tx in traded_picks_records:
+        if tx.espn_transaction_id in deleted_trade_ids or (
+            tx.related_espn_transaction_id and tx.related_espn_transaction_id in deleted_trade_ids
+        ):
+            continue
         processed_item_ids.add(item.id)
         round_num = traded_pick.round
         from_team = team_lookup.get(item.from_team_id) if item.from_team_id else None
@@ -261,6 +269,10 @@ def _build_future_draft_data(
 
     # Catch any legacy placeholder items
     for item, tx, player in all_trade_items:
+        if tx.espn_transaction_id in deleted_trade_ids or (
+            tx.related_espn_transaction_id and tx.related_espn_transaction_id in deleted_trade_ids
+        ):
+            continue
         if item.id in processed_item_ids:
             continue
         # Check if player name or id references this future season
