@@ -40,7 +40,6 @@ function isActive(to: string): boolean {
         class="relative flex flex-col items-center justify-center min-h-[56px] px-1 py-1 text-center transition-colors group"
         :class="isActive(item.to) ? 'text-emerald-400' : 'text-slate-400 hover:text-slate-200'"
       >
-      >
         <!-- Active indicator pill at top of tab -->
         <span
           v-if="isActive(item.to)"
