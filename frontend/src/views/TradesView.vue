@@ -121,25 +121,37 @@ const latestSeasonWithTransactions = computed<number | null>(() => {
   return years.length ? Math.max(...years) : null;
 });
 
-async function loadData() {
-  loading.value = true;
+async function loadData(silent = false) {
+  if (!silent) {
+    loading.value = true;
+  }
   error.value = null;
   try {
     const [trendsData, txData] = await Promise.all([
-      fetchTradeTrends(selectedSeason.value),
-      fetchTransactionsSummary(selectedSeason.value).catch(() => null),
+      fetchTradeTrends(selectedSeason.value, silent),
+      fetchTransactionsSummary(selectedSeason.value, silent).catch(() => null),
     ]);
     tradeTrends.value = trendsData;
     transactionsSummary.value = txData;
+    if (selectedTrade.value && trendsData.trades) {
+      const updated = trendsData.trades.find((t) => t.trade_id === selectedTrade.value?.trade_id);
+      if (updated) {
+        selectedTrade.value = updated;
+      }
+    }
   } catch (err: unknown) {
-    if (err instanceof Error) {
-      error.value = err.message;
-    } else {
-      error.value = 'Failed to load trade records';
+    if (!silent) {
+      if (err instanceof Error) {
+        error.value = err.message;
+      } else {
+        error.value = 'Failed to load trade records';
+      }
     }
     console.error('Error fetching trade trends:', err);
   } finally {
-    loading.value = false;
+    if (!silent) {
+      loading.value = false;
+    }
   }
 }
 
@@ -340,7 +352,7 @@ function resetTradeFilters() {
       :description="error"
       :is-error="true"
       action-text="Retry"
-      @action="loadData"
+      @action="() => loadData(false)"
     />
 
     <!-- Main Content -->
@@ -529,7 +541,7 @@ function resetTradeFilters() {
         <CommissionerTradeEditor
           :trades="tradeTrends.trades"
           :initial-trade-to-edit="tradeToEdit"
-          @updated="loadData"
+          @updated="() => loadData(true)"
         />
       </div>
     </div>

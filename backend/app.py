@@ -71,7 +71,10 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             and 200 <= response.status_code < 400
         ):
             if "Cache-Control" not in response.headers:
-                response.headers["Cache-Control"] = "public, max-age=60"
+                if "_t" in request.args or "/admin/" in request.path:
+                    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+                else:
+                    response.headers["Cache-Control"] = "public, max-age=60"
         return response
 
     # Global JSON error handlers

@@ -131,24 +131,38 @@ export async function fetchHallOfFame(
 }
 
 export async function fetchTradeTrends(
-  season?: number | null
+  season?: number | null,
+  bustCache = false
 ): Promise<TradesTrendsResponse> {
-  const query = season != null ? `?season=${season}` : '';
-  return request<TradesTrendsResponse>(`/api/v1/trades/trends${query}`);
+  const params = new URLSearchParams();
+  if (season != null) params.set('season', String(season));
+  if (bustCache) params.set('_t', String(Date.now()));
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return request<TradesTrendsResponse>(
+    `/api/v1/trades/trends${query}`,
+    bustCache ? { cache: 'no-store' } : {}
+  );
 }
 
 export async function fetchTransactionsSummary(
-  season?: number | null
+  season?: number | null,
+  bustCache = false
 ): Promise<TransactionsSummaryResponse> {
-  const query = season != null ? `?season=${season}` : '';
-  return request<TransactionsSummaryResponse>(`/api/v1/transactions/summary${query}`);
+  const params = new URLSearchParams();
+  if (season != null) params.set('season', String(season));
+  if (bustCache) params.set('_t', String(Date.now()));
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return request<TransactionsSummaryResponse>(
+    `/api/v1/transactions/summary${query}`,
+    bustCache ? { cache: 'no-store' } : {}
+  );
 }
 
 export async function fetchDrafts(
   season?: number | null
 ): Promise<DraftsResponse> {
   const query = season != null ? `?season=${season}` : '';
-  return request<DraftsResponse>(`/api/v1/drafts${query}`);
+  return request<DraftsResponse>(`/api/v1/drafts${query}`, { cache: 'no-store' });
 }
 
 export async function verifyTradeAdminPassword(
@@ -167,7 +181,8 @@ export async function verifyTradeAdminPassword(
 export async function fetchTradeAdminOptions(
   password: string
 ): Promise<TradeAdminOptionsResponse> {
-  return request<TradeAdminOptionsResponse>('/api/v1/trades/admin/options', {
+  return request<TradeAdminOptionsResponse>(`/api/v1/trades/admin/options?_t=${Date.now()}`, {
+    cache: 'no-store',
     headers: {
       'X-Admin-Password': password,
     },

@@ -541,18 +541,45 @@ def _evaluate_trade(
                 "pick_number": pick_number,
                 "pick_round_value": pick_round_value,
                 "original_team_id": (
-                    next((t.id for t in team_map.values() if t.espn_team_id == getattr(item.traded_pick, "original_espn_team_id", None)), None)
+                    next(
+                        (
+                            t.id
+                            for t in team_map.values()
+                            if t.season_year == trade.season_year
+                            and t.espn_team_id == getattr(item.traded_pick, "original_espn_team_id", None)
+                        ),
+                        item.from_team_id,
+                    )
                     if _safe_has_traded_pick(item)
+                    and getattr(item.traded_pick, "original_espn_team_id", None) is not None
                     else item.from_team_id
                 ),
                 "original_team_name": (
-                    next((t.team_name for t in team_map.values() if t.espn_team_id == getattr(item.traded_pick, "original_espn_team_id", None)), None)
+                    next(
+                        (
+                            t.team_name
+                            for t in team_map.values()
+                            if t.season_year == trade.season_year
+                            and t.espn_team_id == getattr(item.traded_pick, "original_espn_team_id", None)
+                        ),
+                        team_map[item.from_team_id].team_name if item.from_team_id in team_map else None,
+                    )
                     if _safe_has_traded_pick(item)
+                    and getattr(item.traded_pick, "original_espn_team_id", None) is not None
                     else (team_map[item.from_team_id].team_name if item.from_team_id in team_map else None)
                 ),
                 "original_manager_name": (
-                    next((mgr_map.get(t.manager_id) for t in team_map.values() if t.espn_team_id == getattr(item.traded_pick, "original_espn_team_id", None)), None)
+                    next(
+                        (
+                            mgr_map.get(t.manager_id)
+                            for t in team_map.values()
+                            if t.season_year == trade.season_year
+                            and t.espn_team_id == getattr(item.traded_pick, "original_espn_team_id", None)
+                        ),
+                        mgr_map.get(team_map[item.from_team_id].manager_id) if item.from_team_id in team_map else None,
+                    )
                     if _safe_has_traded_pick(item)
+                    and getattr(item.traded_pick, "original_espn_team_id", None) is not None
                     else (mgr_map.get(team_map[item.from_team_id].manager_id) if item.from_team_id in team_map else None)
                 ),
                 "drafted_player_id": drafted_player_id,

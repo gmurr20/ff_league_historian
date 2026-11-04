@@ -254,12 +254,16 @@ function startEditTrade(trade: TradeDetail) {
       })),
     draft_picks: (rawSideA?.assets_received ?? [])
       .filter((a) => a.asset_type === 'PICK')
-      .map((a) => ({
-        season_year: trade.season_year,
-        round: a.pick_round ?? 1,
-        pick_number: a.pick_number ?? null,
-        original_team_id: a.original_team_id ?? null,
-      })),
+      .map((a) => {
+        const yearMatch = a.full_name.match(/\b(20\d\d)\b/);
+        const parsedYear = yearMatch ? Number(yearMatch[1]) : trade.season_year;
+        return {
+          season_year: parsedYear,
+          round: a.pick_round ?? 1,
+          pick_number: a.pick_number ?? null,
+          original_team_id: a.original_team_id ?? null,
+        };
+      }),
     faab_received: rawSideA?.faab_received ?? 0,
     playerSearch: '',
     newPickYear: trade.season_year + 1,
@@ -281,12 +285,16 @@ function startEditTrade(trade: TradeDetail) {
       })),
     draft_picks: (rawSideB?.assets_received ?? [])
       .filter((a) => a.asset_type === 'PICK')
-      .map((a) => ({
-        season_year: trade.season_year,
-        round: a.pick_round ?? 1,
-        pick_number: a.pick_number ?? null,
-        original_team_id: a.original_team_id ?? null,
-      })),
+      .map((a) => {
+        const yearMatch = a.full_name.match(/\b(20\d\d)\b/);
+        const parsedYear = yearMatch ? Number(yearMatch[1]) : trade.season_year;
+        return {
+          season_year: parsedYear,
+          round: a.pick_round ?? 1,
+          pick_number: a.pick_number ?? null,
+          original_team_id: a.original_team_id ?? null,
+        };
+      }),
     faab_received: rawSideB?.faab_received ?? 0,
     playerSearch: '',
     newPickYear: trade.season_year + 1,

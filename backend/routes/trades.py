@@ -236,6 +236,19 @@ def update_trade(trade_id: int) -> tuple[Any, int]:
                 )
                 .first()
             )
+        if not tx:
+            tx = Transaction(
+                season_year=trade.season_year,
+                week=trade.week,
+                espn_transaction_id=trade.espn_transaction_id,
+                transaction_type="TRADE",
+                status="EXECUTED",
+                team_id=side_a_team_id,
+                executed_at=trade.executed_at or datetime.now(UTC),
+                raw_summary={"commissioner_edited": True},
+            )
+            session.add(tx)
+            session.flush()
 
         if tx:
             tx.week = trade.week
@@ -244,8 +257,10 @@ def update_trade(trade_id: int) -> tuple[Any, int]:
             raw_summary["commissioner_edited"] = True
             tx.raw_summary = raw_summary
 
-            # Rebuild TransactionItems
-            session.query(TransactionItem).filter_by(transaction_id=tx.id).delete()
+            # Rebuild TransactionItems (flush deletes first so TradedDraftPick cascades cleanly)
+            for old_item in list(tx.items):
+                session.delete(old_item)
+            session.flush()
 
             items_to_add: list[TransactionItem] = []
 
@@ -296,6 +311,7 @@ def update_trade(trade_id: int) -> tuple[Any, int]:
                 )
 
             session.add_all(items_to_add)
+            session.flush()
 
         team_a_obj = session.get(Team, side_a_team_id)
         team_b_obj = session.get(Team, side_b_team_id)
@@ -309,18 +325,32 @@ def update_trade(trade_id: int) -> tuple[Any, int]:
         supp_picks: list[dict[str, Any]] = []
         if espn_a is not None and espn_b is not None:
             for p_obj in side_a.get("draft_picks", []):
+                orig_tid = p_obj.get("original_team_id")
+                orig_team = session.get(Team, int(orig_tid)) if orig_tid else None
+                orig_espn = (
+                    orig_team.espn_team_id
+                    if orig_team is not None
+                    else (p_obj.get("original_espn_team_id") or espn_b)
+                )
                 supp_picks.append({
                     **p_obj,
                     "to_espn_team_id": espn_a,
                     "from_espn_team_id": espn_b,
-                    "original_espn_team_id": p_obj.get("original_espn_team_id") or espn_b,
+                    "original_espn_team_id": orig_espn,
                 })
             for p_obj in side_b.get("draft_picks", []):
+                orig_tid = p_obj.get("original_team_id")
+                orig_team = session.get(Team, int(orig_tid)) if orig_tid else None
+                orig_espn = (
+                    orig_team.espn_team_id
+                    if orig_team is not None
+                    else (p_obj.get("original_espn_team_id") or espn_a)
+                )
                 supp_picks.append({
                     **p_obj,
                     "to_espn_team_id": espn_b,
                     "from_espn_team_id": espn_a,
-                    "original_espn_team_id": p_obj.get("original_espn_team_id") or espn_a,
+                    "original_espn_team_id": orig_espn,
                 })
 
         ovr_row = (
