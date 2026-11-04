@@ -432,6 +432,8 @@ def test_schema_sql_ddl_completeness() -> None:
         "earnings_ledger",
         "sync_runs",
         "draft_picks",
+        "draft_settings",
+        "traded_draft_picks",
     ]
     for table in expected_tables:
         assert f"CREATE TABLE IF NOT EXISTS {table}" in ddl, f"Missing table definition: {table}"

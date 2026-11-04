@@ -426,6 +426,9 @@ export interface TradePlayerAsset {
   pick_round: number | null;
   pick_number: number | null;
   pick_round_value: number;
+  original_team_id: number | null;
+  original_team_name: string | null;
+  original_manager_name: string | null;
   drafted_player_id: number | null;
   drafted_player_name: string | null;
   drafted_player_position: string | null;
@@ -645,4 +648,139 @@ export interface TransactionsSummaryResponse {
   failure_reasons: FailureReasonCount[];
   bidding_wars: BiddingWar[];
   transactions: TransactionAuditItem[];
+}
+
+export interface DraftTeamRef {
+  team_id: number;
+  espn_team_id: number;
+  team_name: string;
+  manager_id: number;
+  manager_name: string;
+  logo_url: string | null;
+}
+
+export interface FutureDraftPickTradeInfo {
+  transaction_id: number;
+  espn_transaction_id: string;
+  week: number | null;
+  executed_at: string | null;
+  from_team: DraftTeamRef | null;
+  to_team: DraftTeamRef;
+}
+
+export interface FutureDraftPick {
+  round: number;
+  round_pick: number;
+  projected_overall_pick: number;
+  original_slot: number;
+  original_team: DraftTeamRef;
+  current_team: DraftTeamRef;
+  is_traded: boolean;
+  trade_details: FutureDraftPickTradeInfo | null;
+  movement_history: DraftTeamRef[];
+}
+
+export interface FutureDraftRound {
+  round: number;
+  picks: FutureDraftPick[];
+}
+
+export interface FutureDraftTeamSummary {
+  team_id: number;
+  espn_team_id: number;
+  team_name: string;
+  manager_id: number;
+  manager_name: string;
+  logo_url: string | null;
+  provisional_slot: number;
+  record: string;
+  points_for: number;
+  total_picks: number;
+  net_picks: number;
+  picks_held: FutureDraftPick[];
+  picks_traded_away: FutureDraftPick[];
+  picks_acquired: FutureDraftPick[];
+}
+
+export interface FutureDraftTradeLogEntry {
+  round: number;
+  projected_overall_pick: number;
+  original_team: DraftTeamRef;
+  from_team: DraftTeamRef | null;
+  to_team: DraftTeamRef;
+  week: number | null;
+  executed_at: string | null;
+  espn_transaction_id: string;
+}
+
+export interface FutureDraftData {
+  season_year: number;
+  reference_season_year: number;
+  league_size: number;
+  total_rounds: number;
+  provisional_order_type: string;
+  provisional_order_note: string;
+  rounds: FutureDraftRound[];
+  teams_summary: FutureDraftTeamSummary[];
+  traded_picks_log: FutureDraftTradeLogEntry[];
+}
+
+export interface HistoricalDraftPlayerRef {
+  player_id: number;
+  full_name: string;
+  default_position: string;
+  pro_team: string;
+  headshot_url: string | null;
+}
+
+export interface HistoricalDraftPick {
+  overall_pick: number;
+  round: number;
+  round_pick: number;
+  bid_amount: number;
+  is_keeper: boolean;
+  was_traded: boolean;
+  original_team: DraftTeamRef | null;
+  drafting_team: DraftTeamRef;
+  player: HistoricalDraftPlayerRef;
+}
+
+export interface HistoricalDraftRound {
+  round: number;
+  picks: HistoricalDraftPick[];
+}
+
+export interface HistoricalDraftTeamPicks {
+  team_id: number;
+  espn_team_id: number;
+  team_name: string;
+  manager_id: number;
+  manager_name: string;
+  logo_url: string | null;
+  total_picks: number;
+  keepers_count: number;
+  picks: HistoricalDraftPick[];
+}
+
+export interface HistoricalDraftData {
+  season_year: number;
+  draft_type: string;
+  draft_date: string | null;
+  total_picks: number;
+  total_rounds: number;
+  league_size: number;
+  keeper_count: number;
+  picks: HistoricalDraftPick[];
+  rounds: HistoricalDraftRound[];
+  by_team: HistoricalDraftTeamPicks[];
+}
+
+export interface DraftsResponse {
+  selected_season: number;
+  available_seasons: number[];
+  is_future_draft: boolean;
+  league_size: number;
+  total_rounds: number;
+  future_draft: FutureDraftData | null;
+  historical_draft: HistoricalDraftData | null;
 }

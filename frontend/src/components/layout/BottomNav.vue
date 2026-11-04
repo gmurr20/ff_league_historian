@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router';
-import { Trophy, DollarSign, Award, ArrowLeftRight } from 'lucide-vue-next';
+import { Trophy, DollarSign, Award, ArrowLeftRight, ListOrdered } from 'lucide-vue-next';
 
 interface NavItem {
   name: string;
@@ -14,6 +14,7 @@ const navItems: NavItem[] = [
   { name: 'earnings', label: 'Earnings', to: '/earnings', icon: DollarSign },
   { name: 'hall-of-fame', label: 'Hall of Fame', to: '/hall-of-fame', icon: Award },
   { name: 'trades', label: 'Trades', to: '/trades', icon: ArrowLeftRight },
+  { name: 'drafts', label: 'Drafts', to: '/drafts', icon: ListOrdered },
 ];
 
 const route = useRoute();
@@ -31,13 +32,14 @@ function isActive(to: string): boolean {
     class="fixed bottom-0 inset-x-0 z-40 bg-slate-950/95 backdrop-blur-lg border-t border-slate-800/80 pb-safe transition-all select-none"
     aria-label="Primary Navigation"
   >
-    <div class="max-w-md mx-auto grid grid-cols-4 h-14 sm:h-16">
+    <div class="max-w-lg mx-auto grid grid-cols-5 h-14 sm:h-16">
       <router-link
         v-for="item in navItems"
         :key="item.name"
         :to="item.to"
         class="relative flex flex-col items-center justify-center min-h-[56px] px-1 py-1 text-center transition-colors group"
         :class="isActive(item.to) ? 'text-emerald-400' : 'text-slate-400 hover:text-slate-200'"
+      >
       >
         <!-- Active indicator pill at top of tab -->
         <span

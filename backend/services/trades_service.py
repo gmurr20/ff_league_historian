@@ -530,6 +530,21 @@ def _evaluate_trade(
                 "pick_round": pick_round,
                 "pick_number": pick_number,
                 "pick_round_value": pick_round_value,
+                "original_team_id": (
+                    next((t.id for t in team_map.values() if t.espn_team_id == item.traded_pick.original_espn_team_id), None)
+                    if hasattr(item, "traded_pick") and item.traded_pick and item.traded_pick.original_espn_team_id
+                    else item.from_team_id
+                ),
+                "original_team_name": (
+                    next((t.team_name for t in team_map.values() if t.espn_team_id == item.traded_pick.original_espn_team_id), None)
+                    if hasattr(item, "traded_pick") and item.traded_pick and item.traded_pick.original_espn_team_id
+                    else (team_map[item.from_team_id].team_name if item.from_team_id in team_map else None)
+                ),
+                "original_manager_name": (
+                    next((mgr_map.get(t.manager_id) for t in team_map.values() if t.espn_team_id == item.traded_pick.original_espn_team_id), None)
+                    if hasattr(item, "traded_pick") and item.traded_pick and item.traded_pick.original_espn_team_id
+                    else (mgr_map.get(team_map[item.from_team_id].manager_id) if item.from_team_id in team_map else None)
+                ),
                 "drafted_player_id": drafted_player_id,
                 "drafted_player_name": drafted_player_name,
                 "drafted_player_position": drafted_player_pos,
@@ -543,6 +558,9 @@ def _evaluate_trade(
         pick_round = None
         pick_number = None
         pick_round_value = 0.0
+        original_team_id = None
+        original_team_name = None
+        original_manager_name = None
         drafted_player_id = None
         drafted_player_name = None
         drafted_player_pos = None
@@ -693,6 +711,9 @@ def _evaluate_trade(
             "pick_round": pick_round,
             "pick_number": pick_number,
             "pick_round_value": pick_round_value,
+            "original_team_id": original_team_id,
+            "original_team_name": original_team_name,
+            "original_manager_name": original_manager_name,
             "drafted_player_id": drafted_player_id,
             "drafted_player_name": drafted_player_name,
             "drafted_player_position": drafted_player_pos,

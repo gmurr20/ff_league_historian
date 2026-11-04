@@ -29,6 +29,7 @@ from backend.jobs.deep_parsers import (
     upsert_transactions_from_payload,
     upsert_weekly_lineups_from_payload,
 )
+from backend.jobs.draft_assets import upsert_draft_settings_from_payload
 from backend.jobs.espn_client import EspnAccessError, EspnClient, get_configured_league_ids
 from backend.jobs.ledger_reconciler import reconcile_season_ledger
 from backend.jobs.media_downloader import download_and_archive_all_league_media
@@ -182,6 +183,7 @@ def backfill_history(
                     lineups.extend(period_lineups)
 
             draft_picks = upsert_draft_picks_from_payload(session, season, combined, team_map, client=client)
+            upsert_draft_settings_from_payload(session, season, combined)
             txs = upsert_transactions_from_payload(session, season, combined, team_map)
             ledger_entries = reconcile_season_ledger(session, season)
 
@@ -430,6 +432,7 @@ def backfill_history(
         draft_picks = upsert_draft_picks_from_payload(
             session, season, payload, team_map, client=espn_client
         )
+        upsert_draft_settings_from_payload(session, season, payload)
         lineups = upsert_weekly_lineups_from_payload(session, season, payload, team_map)
         txs = upsert_transactions_from_payload(session, season, payload, team_map)
         ledger_entries = reconcile_season_ledger(session, season)

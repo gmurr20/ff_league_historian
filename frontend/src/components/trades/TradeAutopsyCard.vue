@@ -101,7 +101,10 @@ function playerMeta(asset: TradePlayerAsset): string[] {
                 R{{ asset.pick_round ?? '?' }}
               </div>
               <div class="min-w-0 flex-1">
-                <div class="text-[13px] font-medium text-slate-200 truncate leading-tight">{{ asset.full_name }}</div>
+                <div class="text-[13px] font-medium text-slate-200 truncate leading-tight">
+                  {{ asset.full_name }}
+                  <span v-if="asset.original_manager_name" class="text-[11px] font-normal text-violet-400"> ({{ asset.original_manager_name }})</span>
+                </div>
                 <div class="text-[11px] text-slate-500 truncate mt-0.5">
                   <template v-if="asset.drafted_player_name">
                     Became
@@ -110,7 +113,9 @@ function playerMeta(asset: TradePlayerAsset): string[] {
                       {{ asset.drafted_player_position }}
                     </span>
                   </template>
-                  <template v-else>Draft pick<span v-if="tierText(asset.tier_label)"> · {{ tierText(asset.tier_label) }}</span></template>
+                  <template v-else>
+                    Draft pick<span v-if="asset.original_team_name"> · Orig: {{ asset.original_team_name }}</span><span v-if="tierText(asset.tier_label)"> · {{ tierText(asset.tier_label) }}</span>
+                  </template>
                 </div>
               </div>
             </template>

@@ -629,6 +629,145 @@ export interface TransactionsSummaryResponse {
   bidding_wars: BiddingWar[];
   transactions: TransactionAuditItem[];
 }
+
+// ==========================================
+// 7. Drafts & Draft Capital
+// ==========================================
+
+export interface DraftTeamRef {
+  team_id: number;
+  espn_team_id: number;
+  team_name: string;
+  manager_id: number;
+  manager_name: string;
+  logo_url: string | null;
+}
+
+export interface FutureDraftPickTradeInfo {
+  transaction_id: number;
+  espn_transaction_id: string;
+  week: number | null;
+  executed_at: string | null;
+  from_team: DraftTeamRef | null;
+  to_team: DraftTeamRef;
+}
+
+export interface FutureDraftPick {
+  round: number;
+  round_pick: number;
+  projected_overall_pick: number;
+  original_slot: number;
+  original_team: DraftTeamRef;
+  current_team: DraftTeamRef;
+  is_traded: boolean;
+  trade_details: FutureDraftPickTradeInfo | null;
+  movement_history: DraftTeamRef[];
+}
+
+export interface FutureDraftRound {
+  round: number;
+  picks: FutureDraftPick[];
+}
+
+export interface FutureDraftTeamSummary {
+  team_id: number;
+  espn_team_id: number;
+  team_name: string;
+  manager_id: number;
+  manager_name: string;
+  logo_url: string | null;
+  provisional_slot: number;
+  record: string;
+  points_for: number;
+  total_picks: number;
+  net_picks: number;
+  picks_held: FutureDraftPick[];
+  picks_traded_away: FutureDraftPick[];
+  picks_acquired: FutureDraftPick[];
+}
+
+export interface FutureDraftTradeLogEntry {
+  round: number;
+  projected_overall_pick: number;
+  original_team: DraftTeamRef;
+  from_team: DraftTeamRef | null;
+  to_team: DraftTeamRef;
+  week: number | null;
+  executed_at: string | null;
+  espn_transaction_id: string;
+}
+
+export interface FutureDraftData {
+  season_year: number;
+  reference_season_year: number;
+  league_size: number;
+  total_rounds: number;
+  provisional_order_type: string;
+  provisional_order_note: string;
+  rounds: FutureDraftRound[];
+  teams_summary: FutureDraftTeamSummary[];
+  traded_picks_log: FutureDraftTradeLogEntry[];
+}
+
+export interface HistoricalDraftPlayerRef {
+  player_id: number;
+  full_name: string;
+  default_position: string;
+  pro_team: string;
+  headshot_url: string | null;
+}
+
+export interface HistoricalDraftPick {
+  overall_pick: number;
+  round: number;
+  round_pick: number;
+  bid_amount: number;
+  is_keeper: boolean;
+  was_traded: boolean;
+  original_team: DraftTeamRef | null;
+  drafting_team: DraftTeamRef;
+  player: HistoricalDraftPlayerRef;
+}
+
+export interface HistoricalDraftRound {
+  round: number;
+  picks: HistoricalDraftPick[];
+}
+
+export interface HistoricalDraftTeamPicks {
+  team_id: number;
+  espn_team_id: number;
+  team_name: string;
+  manager_id: number;
+  manager_name: string;
+  logo_url: string | null;
+  total_picks: number;
+  keepers_count: number;
+  picks: HistoricalDraftPick[];
+}
+
+export interface HistoricalDraftData {
+  season_year: number;
+  draft_type: string;
+  draft_date: string | null;
+  total_picks: number;
+  total_rounds: number;
+  league_size: number;
+  keeper_count: number;
+  picks: HistoricalDraftPick[];
+  rounds: HistoricalDraftRound[];
+  by_team: HistoricalDraftTeamPicks[];
+}
+
+export interface DraftsResponse {
+  selected_season: number;
+  available_seasons: number[];
+  is_future_draft: boolean;
+  league_size: number;
+  total_rounds: number;
+  future_draft: FutureDraftData | null;
+  historical_draft: HistoricalDraftData | null;
+}
 ```
 
 ---
@@ -1090,4 +1229,83 @@ Streams locally archived custom team logo or manager avatar image bytes directly
 - **Response:** Binary image stream.
 - **Error Responses:**
   - `404 Not Found`: If asset ID does not exist in `media_assets`.
+
+---
+
+### 9. `GET /api/v1/drafts`
+Returns future draft pick order (provisional or official ESPN), traded draft pick asset tracking, and past season draft boards (192 picks with keepers and traded receipts).
+- **Query Parameters:**
+  - `season` (integer, optional): The target draft season year. Defaults to future draft season (e.g. `2027`).
+- **Response Schema:** `DraftsResponse`
+- **Example Response (Future Draft):**
+  ```json
+  {
+    "selected_season": 2027,
+    "available_seasons": [2027, 2026, 2025],
+    "is_future_draft": true,
+    "league_size": 12,
+    "total_rounds": 16,
+    "future_draft": {
+      "season_year": 2027,
+      "reference_season_year": 2026,
+      "league_size": 12,
+      "total_rounds": 16,
+      "provisional_order_type": "REVERSE_STANDINGS",
+      "provisional_order_note": "Provisional pick order projected from current 2026 regular season standings (reverse standings: lowest win pct picks #1). Closer to draft day, this board will automatically update to the official pick order once set in ESPN.",
+      "rounds": [
+        {
+          "round": 1,
+          "picks": [
+            {
+              "round": 1,
+              "round_pick": 1,
+              "projected_overall_pick": 1,
+              "original_slot": 1,
+              "original_team": {
+                "team_id": 14,
+                "espn_team_id": 2,
+                "team_name": "Team 2",
+                "manager_id": 2,
+                "manager_name": "Manager Two",
+                "logo_url": null
+              },
+              "current_team": {
+                "team_id": 14,
+                "espn_team_id": 2,
+                "team_name": "Team 2",
+                "manager_id": 2,
+                "manager_name": "Manager Two",
+                "logo_url": null
+              },
+              "is_traded": false,
+              "trade_details": null,
+              "movement_history": []
+            }
+          ]
+        }
+      ],
+      "teams_summary": [
+        {
+          "team_id": 14,
+          "espn_team_id": 2,
+          "team_name": "Team 2",
+          "manager_id": 2,
+          "manager_name": "Manager Two",
+          "logo_url": null,
+          "provisional_slot": 1,
+          "record": "2-6",
+          "points_for": 842.1,
+          "total_picks": 16,
+          "net_picks": 0,
+          "picks_held": [],
+          "picks_traded_away": [],
+          "picks_acquired": []
+        }
+      ],
+      "traded_picks_log": []
+    },
+    "historical_draft": null
+  }
+  ```
+
 

@@ -7,12 +7,15 @@ import type {
   TradesTrendsResponse,
   TradeDetail,
   TransactionsSummaryResponse,
+  DraftsResponse,
 } from '@/types/api';
 
 export type TradeAdminDraftPickInput = {
   season_year?: number;
   round: number;
   pick_number?: number | null;
+  original_team_id?: number | null;
+  original_espn_team_id?: number | null;
 };
 
 export type TradeAdminSideInput = {
@@ -141,6 +144,13 @@ export async function fetchTransactionsSummary(
   return request<TransactionsSummaryResponse>(`/api/v1/transactions/summary${query}`);
 }
 
+export async function fetchDrafts(
+  season?: number | null
+): Promise<DraftsResponse> {
+  const query = season != null ? `?season=${season}` : '';
+  return request<DraftsResponse>(`/api/v1/drafts${query}`);
+}
+
 export async function verifyTradeAdminPassword(
   password: string
 ): Promise<{ authenticated: boolean }> {
@@ -225,6 +235,7 @@ export const apiClient = {
   fetchHallOfFame,
   fetchTradeTrends,
   fetchTransactionsSummary,
+  fetchDrafts,
   verifyTradeAdminPassword,
   fetchTradeAdminOptions,
   updateTradeAdmin,

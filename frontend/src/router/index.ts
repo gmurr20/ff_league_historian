@@ -27,6 +27,16 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'Trades' },
   },
   {
+    path: '/drafts',
+    name: 'drafts',
+    component: () => import('@/views/DraftView.vue'),
+    meta: { title: 'Drafts' },
+  },
+  {
+    path: '/draft',
+    redirect: '/drafts',
+  },
+  {
     path: '/waivers',
     redirect: { path: '/trades', query: { tab: 'waivers' } },
   },

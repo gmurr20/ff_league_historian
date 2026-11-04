@@ -27,6 +27,7 @@ from backend.jobs.deep_parsers import (
     upsert_transactions_from_payload,
     upsert_weekly_lineups_from_payload,
 )
+from backend.jobs.draft_assets import upsert_draft_settings_from_payload
 from backend.jobs.espn_client import EspnClient, get_configured_league_ids
 from backend.jobs.ledger_reconciler import (
     reconcile_podium_ledger,
@@ -257,6 +258,7 @@ def sync_weekly(
 
     # Upsert draft picks if present in payload
     upsert_draft_picks_from_payload(session, season, payload, team_map, client=espn_client)
+    upsert_draft_settings_from_payload(session, season, payload)
 
     # Upsert players, lineups and transactions restricted to the rolling window
     upsert_players_from_payload(session, payload)

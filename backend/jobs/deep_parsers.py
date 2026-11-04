@@ -20,6 +20,10 @@ from typing import Any
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from backend.jobs.draft_assets import (
+    attach_espn_pick_identity,
+    build_pick_trade_item,
+)
 from backend.jobs.parsers import load_trade_overrides
 from backend.models.draft import DraftPick
 from backend.models.lineup import WeeklyLineup
@@ -1436,14 +1440,16 @@ def upsert_transactions_from_payload(
                         item_type="TRADE",
                     ))
                 for pick_obj in side_a.get("draft_picks", []):
-                    pick_pid = resolve_or_create_pick_player(session, pick_obj, season.season_year)
-                    items_to_add.append(TransactionItem(
-                        transaction_id=tx.id,
-                        player_id=pick_pid,
-                        from_team_id=side_b_tid,
-                        to_team_id=side_a_tid,
-                        item_type="TRADE",
-                    ))
+                    items_to_add.append(
+                        build_pick_trade_item(
+                            session,
+                            transaction_id=tx.id,
+                            pick=pick_obj,
+                            default_season=season.season_year,
+                            from_team_id=side_b_tid,
+                            to_team_id=side_a_tid,
+                        )
+                    )
 
                 # Side B receives from Side A
                 for p_id in side_b.get("player_ids", []):
@@ -1459,14 +1465,16 @@ def upsert_transactions_from_payload(
                         item_type="TRADE",
                     ))
                 for pick_obj in side_b.get("draft_picks", []):
-                    pick_pid = resolve_or_create_pick_player(session, pick_obj, season.season_year)
-                    items_to_add.append(TransactionItem(
-                        transaction_id=tx.id,
-                        player_id=pick_pid,
-                        from_team_id=side_a_tid,
-                        to_team_id=side_b_tid,
-                        item_type="TRADE",
-                    ))
+                    items_to_add.append(
+                        build_pick_trade_item(
+                            session,
+                            transaction_id=tx.id,
+                            pick=pick_obj,
+                            default_season=season.season_year,
+                            from_team_id=side_a_tid,
+                            to_team_id=side_b_tid,
+                        )
+                    )
 
             session.add_all(items_to_add)
             session.flush()
@@ -1563,6 +1571,15 @@ def upsert_transactions_from_payload(
                     to_team_id=to_tid,
                     item_type=item_type,
                 )
+                if raw_item_type == "DRAFT_TRADE" or pick_num > 0:
+                    attach_espn_pick_identity(
+                        t_item,
+                        season_year=season.season_year,
+                        overall_pick=pick_num,
+                        pick_order=[],
+                        draft_type="SNAKE",
+                        league_size=len(team_lookup) if team_lookup else 12,
+                    )
                 items_to_add.append(t_item)
 
             session.add_all(items_to_add)

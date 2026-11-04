@@ -356,6 +356,46 @@ CREATE INDEX IF NOT EXISTS idx_draft_picks_player_id ON draft_picks(player_id);
 COMMENT ON TABLE draft_picks IS 'Annual draft board containing ordered selections, auction amounts, and keeper flags.';
 
 -- -----------------------------------------------------------------------------
+-- 13b. Draft Settings (ESPN settings.draftSettings)
+-- Round-1 pick order by franchise slot, draft type, keeper count and draft date.
+-- Needed to map overall pick numbers back to the franchise that originally owned them.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS draft_settings (
+    season_year INT PRIMARY KEY REFERENCES seasons(season_year) ON DELETE CASCADE,
+    draft_type VARCHAR(32) NOT NULL DEFAULT 'SNAKE',
+    order_type VARCHAR(32),
+    pick_order JSONB NOT NULL DEFAULT '[]'::jsonb,
+    keeper_count INT NOT NULL DEFAULT 0,
+    draft_date TIMESTAMPTZ,
+    is_drafted BOOLEAN NOT NULL DEFAULT FALSE,
+    completed_at TIMESTAMPTZ,
+    raw_settings JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+COMMENT ON TABLE draft_settings IS 'ESPN draft configuration per season: round-1 pick order (espn_team_id slots), type, keepers, date.';
+
+-- -----------------------------------------------------------------------------
+-- 13c. Traded Draft Picks (pick identity tied to the original franchise)
+-- One row per TransactionItem that moved a draft pick. Identity is
+-- (draft_year, round, original_espn_team_id) so a specific team's pick can be
+-- followed across multiple trades. original_espn_team_id NULL = not recorded
+-- (inferred at read time from replayed ownership).
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS traded_draft_picks (
+    id SERIAL PRIMARY KEY,
+    transaction_item_id INT NOT NULL UNIQUE REFERENCES transaction_items(id) ON DELETE CASCADE,
+    draft_year INT NOT NULL,
+    round INT NOT NULL,
+    original_espn_team_id INT,
+    overall_pick INT
+);
+
+CREATE INDEX IF NOT EXISTS idx_traded_draft_picks_identity
+    ON traded_draft_picks(draft_year, round, original_espn_team_id);
+
+COMMENT ON TABLE traded_draft_picks IS 'Traded draft pick identity (draft year, round, original franchise slot) linked to the moving trade item.';
+
+-- -----------------------------------------------------------------------------
 -- 14. Media Assets
 -- Archived custom team logos and manager avatars served locally to prevent client 401s.
 -- -----------------------------------------------------------------------------

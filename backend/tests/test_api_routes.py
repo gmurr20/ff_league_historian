@@ -879,3 +879,73 @@ def test_media_asset_endpoint(client: FlaskClient) -> None:
     assert res_404.status_code == 404
     data_404 = res_404.get_json()
     assert data_404["error"] == "NOT_FOUND"
+
+
+# ============================================================================
+# 9. Drafts & Future Draft Order Endpoints
+# ============================================================================
+
+
+def test_drafts_future_default_endpoint(client: FlaskClient) -> None:
+    """Verifies GET /api/v1/drafts defaults to future draft order with 16 rounds and team inventories."""
+    res = client.get("/api/v1/drafts")
+    assert res.status_code == 200
+    assert res.headers.get("Cache-Control") == "public, max-age=60"
+
+    # Alias check
+    alias_res = client.get("/api/v1/draft")
+    assert alias_res.status_code == 200
+    assert res.get_json() == alias_res.get_json()
+
+    data = res.get_json()
+    assert data["is_future_draft"] is True
+    assert data["selected_season"] == 2025  # Active in seed is 2024 -> future is 2025
+    assert len(data["available_seasons"]) >= 3
+    assert data["total_rounds"] == 16
+    assert data["league_size"] == 8
+
+    future_draft = data["future_draft"]
+    assert future_draft is not None
+    assert "provisional_order_note" in future_draft
+    assert len(future_draft["rounds"]) == 16
+    assert len(future_draft["teams_summary"]) == 8
+
+    # Check snake round 1 vs round 2 pick order
+    r1_picks = future_draft["rounds"][0]["picks"]
+    r2_picks = future_draft["rounds"][1]["picks"]
+    assert len(r1_picks) == 8
+    assert len(r2_picks) == 8
+    assert r1_picks[0]["round"] == 1
+    assert r1_picks[0]["round_pick"] == 1
+    assert r1_picks[0]["original_team"]["team_id"] == r2_picks[-1]["original_team"]["team_id"]
+
+
+def test_drafts_historical_season_endpoint(client: FlaskClient) -> None:
+    """Verifies GET /api/v1/drafts?season=2024 returns historical draft board selections."""
+    res = client.get("/api/v1/drafts?season=2024")
+    assert res.status_code == 200
+
+    data = res.get_json()
+    assert data["is_future_draft"] is False
+    assert data["selected_season"] == 2024
+    assert data["future_draft"] is None
+
+    hist = data["historical_draft"]
+    assert hist is not None
+    assert hist["season_year"] == 2024
+    assert len(hist["picks"]) == 16
+    assert hist["keeper_count"] == 1
+
+    first_pick = hist["picks"][0]
+    assert first_pick["overall_pick"] == 1
+    assert first_pick["round"] == 1
+    assert first_pick["player"]["full_name"] == "Christian McCaffrey"
+    assert first_pick["is_keeper"] is True
+
+
+def test_drafts_bad_season_parameter(client: FlaskClient) -> None:
+    """Verifies GET /api/v1/drafts?season=invalid returns 400 BAD_REQUEST."""
+    res = client.get("/api/v1/drafts?season=not-a-year")
+    assert res.status_code == 400
+    data = res.get_json()
+    assert data["error"] == "BAD_REQUEST"

@@ -11,6 +11,7 @@ from flask import Blueprint, current_app, jsonify, request
 from sqlalchemy import or_
 
 from backend.database import SessionLocal
+from backend.jobs.draft_assets import build_pick_trade_item
 from backend.jobs.parsers import load_trade_overrides, save_trade_overrides
 from backend.models.manager import Manager
 from backend.models.player import Player
@@ -257,16 +258,14 @@ def update_trade(trade_id: int) -> tuple[Any, int]:
                     )
                 )
             for pick_obj in side_a.get("draft_picks", []):
-                pick_pid = _resolve_or_create_pick_player(
-                    session, pick_obj, trade.season_year
-                )
                 items_to_add.append(
-                    TransactionItem(
+                    build_pick_trade_item(
+                        session,
                         transaction_id=tx.id,
-                        player_id=pick_pid,
+                        pick=pick_obj,
+                        default_season=trade.season_year,
                         from_team_id=side_b_team_id,
                         to_team_id=side_a_team_id,
-                        item_type="TRADE",
                     )
                 )
 
@@ -282,16 +281,14 @@ def update_trade(trade_id: int) -> tuple[Any, int]:
                     )
                 )
             for pick_obj in side_b.get("draft_picks", []):
-                pick_pid = _resolve_or_create_pick_player(
-                    session, pick_obj, trade.season_year
-                )
                 items_to_add.append(
-                    TransactionItem(
+                    build_pick_trade_item(
+                        session,
                         transaction_id=tx.id,
-                        player_id=pick_pid,
+                        pick=pick_obj,
+                        default_season=trade.season_year,
                         from_team_id=side_a_team_id,
                         to_team_id=side_b_team_id,
-                        item_type="TRADE",
                     )
                 )
 
@@ -395,14 +392,14 @@ def create_trade() -> tuple[Any, int]:
                 )
             )
         for pick_obj in side_a.get("draft_picks", []):
-            pick_pid = _resolve_or_create_pick_player(session, pick_obj, season_year)
             items_to_add.append(
-                TransactionItem(
+                build_pick_trade_item(
+                    session,
                     transaction_id=tx.id,
-                    player_id=pick_pid,
+                    pick=pick_obj,
+                    default_season=season_year,
                     from_team_id=side_b_team_id,
                     to_team_id=side_a_team_id,
-                    item_type="TRADE",
                 )
             )
 
@@ -418,14 +415,14 @@ def create_trade() -> tuple[Any, int]:
                 )
             )
         for pick_obj in side_b.get("draft_picks", []):
-            pick_pid = _resolve_or_create_pick_player(session, pick_obj, season_year)
             items_to_add.append(
-                TransactionItem(
+                build_pick_trade_item(
+                    session,
                     transaction_id=tx.id,
-                    player_id=pick_pid,
+                    pick=pick_obj,
+                    default_season=season_year,
                     from_team_id=side_a_team_id,
                     to_team_id=side_b_team_id,
-                    item_type="TRADE",
                 )
             )
 

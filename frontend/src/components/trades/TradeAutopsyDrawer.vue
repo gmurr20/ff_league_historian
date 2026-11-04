@@ -218,7 +218,10 @@ const overallScorePercentA = computed(() => {
                           <Ticket class="w-4 h-4" />
                         </div>
                         <div class="min-w-0">
-                          <div class="font-bold text-xs text-violet-200 truncate">{{ asset.full_name }}</div>
+                          <div class="font-bold text-xs text-violet-200 truncate">
+                            {{ asset.full_name }}
+                            <span v-if="asset.original_manager_name" class="font-normal text-violet-400"> ({{ asset.original_manager_name }})</span>
+                          </div>
                           <div class="flex items-center gap-1.5 mt-0.5 flex-wrap">
                             <span
                               v-if="asset.pick_round != null"
@@ -490,7 +493,10 @@ const overallScorePercentA = computed(() => {
                       <Ticket class="w-4 h-4" />
                     </div>
                     <div class="min-w-0">
-                      <div class="font-bold text-xs text-violet-200 truncate">{{ asset.full_name }}</div>
+                      <div class="font-bold text-xs text-violet-200 truncate">
+                        {{ asset.full_name }}
+                        <span v-if="asset.original_manager_name" class="font-normal text-violet-400"> ({{ asset.original_manager_name }})</span>
+                      </div>
                       <div class="flex items-center gap-2 mt-0.5 text-[11px] font-mono text-slate-400 flex-wrap">
                         <span v-if="asset.pick_round != null" class="text-violet-300 font-bold">Round {{ asset.pick_round }}</span>
                         <span v-if="asset.tier_label" class="text-indigo-300">{{ asset.tier_label }}</span>

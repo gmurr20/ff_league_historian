@@ -73,6 +73,7 @@ interface FormSideState {
   newPickYear: number;
   newPickRound: number;
   newPickNumber: number | null;
+  newPickOriginalTeamId: number | null;
 }
 
 const formTradeId = ref<number | null>(null);
@@ -90,6 +91,7 @@ const sideA = ref<FormSideState>({
   newPickYear: new Date().getFullYear(),
   newPickRound: 1,
   newPickNumber: null,
+  newPickOriginalTeamId: null,
 });
 
 const sideB = ref<FormSideState>({
@@ -101,6 +103,7 @@ const sideB = ref<FormSideState>({
   newPickYear: new Date().getFullYear(),
   newPickRound: 1,
   newPickNumber: null,
+  newPickOriginalTeamId: null,
 });
 
 // Load session password on mount
@@ -211,6 +214,7 @@ function startCreateTrade() {
     newPickYear: formSeasonYear.value + 1,
     newPickRound: 1,
     newPickNumber: null,
+    newPickOriginalTeamId: null,
   };
 
   sideB.value = {
@@ -222,6 +226,7 @@ function startCreateTrade() {
     newPickYear: formSeasonYear.value + 1,
     newPickRound: 1,
     newPickNumber: null,
+    newPickOriginalTeamId: null,
   };
 }
 
@@ -253,12 +258,14 @@ function startEditTrade(trade: TradeDetail) {
         season_year: trade.season_year,
         round: a.pick_round ?? 1,
         pick_number: a.pick_number ?? null,
+        original_team_id: a.original_team_id ?? null,
       })),
     faab_received: rawSideA?.faab_received ?? 0,
     playerSearch: '',
     newPickYear: trade.season_year + 1,
     newPickRound: 1,
     newPickNumber: null,
+    newPickOriginalTeamId: null,
   };
 
   sideB.value = {
@@ -278,12 +285,14 @@ function startEditTrade(trade: TradeDetail) {
         season_year: trade.season_year,
         round: a.pick_round ?? 1,
         pick_number: a.pick_number ?? null,
+        original_team_id: a.original_team_id ?? null,
       })),
     faab_received: rawSideB?.faab_received ?? 0,
     playerSearch: '',
     newPickYear: trade.season_year + 1,
     newPickRound: 1,
     newPickNumber: null,
+    newPickOriginalTeamId: null,
   };
 }
 
@@ -325,13 +334,21 @@ function removePlayerFromSide(side: FormSideState, playerId: number) {
   side.players = side.players.filter((p) => p.player_id !== playerId);
 }
 
-function addDraftPickToSide(side: FormSideState) {
+function getTeamName(teamId?: number | null): string {
+  if (!teamId || !adminOptions.value) return '';
+  const team = adminOptions.value.teams.find((t) => t.team_id === teamId);
+  return team ? (team.manager_name || team.team_name) : `Team ${teamId}`;
+}
+
+function addDraftPickToSide(side: FormSideState, defaultOriginalTeamId?: number | null) {
   side.draft_picks.push({
     season_year: side.newPickYear,
     round: side.newPickRound,
     pick_number: side.newPickNumber || null,
+    original_team_id: side.newPickOriginalTeamId || defaultOriginalTeamId || null,
   });
   side.newPickNumber = null;
+  side.newPickOriginalTeamId = null;
 }
 
 function removeDraftPickFromSide(side: FormSideState, index: number) {
@@ -767,7 +784,10 @@ const filteredExistingTrades = computed(() => {
                   class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-violet-950/40 text-violet-300 border border-violet-500/30 text-xs font-mono"
                 >
                   <Ticket class="w-3 h-3 text-violet-400" />
-                  <span>{{ pick.season_year || formSeasonYear }} Rd {{ pick.round }}{{ pick.pick_number ? ` (#${pick.pick_number})` : '' }}</span>
+                  <span>
+                    {{ pick.season_year || formSeasonYear }} Rd {{ pick.round }}{{ pick.pick_number ? ` (#${pick.pick_number})` : '' }}
+                    <span v-if="pick.original_team_id" class="text-[10px] text-violet-400/90 font-sans">({{ getTeamName(pick.original_team_id) }})</span>
+                  </span>
                   <button
                     type="button"
                     class="text-rose-400 hover:text-rose-300 ml-1 cursor-pointer"
@@ -779,7 +799,7 @@ const filteredExistingTrades = computed(() => {
               </div>
 
               <!-- Inline Add Pick Controls -->
-              <div class="bg-slate-900/90 rounded-lg p-2 border border-slate-800/80 grid grid-cols-4 gap-1.5 text-xs">
+              <div class="bg-slate-900/90 rounded-lg p-2 border border-slate-800/80 grid grid-cols-2 sm:grid-cols-5 gap-1.5 text-xs">
                 <div>
                   <label class="text-[9px] text-slate-500 uppercase font-mono">Year</label>
                   <input
@@ -798,6 +818,18 @@ const filteredExistingTrades = computed(() => {
                   </select>
                 </div>
                 <div>
+                  <label class="text-[9px] text-slate-500 uppercase font-mono">Orig Team</label>
+                  <select
+                    v-model.number="sideA.newPickOriginalTeamId"
+                    class="w-full bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-slate-200 text-xs font-mono"
+                  >
+                    <option :value="null">Partner (Default)</option>
+                    <option v-for="team in availableSeasonTeams" :key="team.team_id" :value="team.team_id">
+                      {{ team.manager_name || team.team_name }}
+                    </option>
+                  </select>
+                </div>
+                <div>
                   <label class="text-[9px] text-slate-500 uppercase font-mono">Pick # (opt)</label>
                   <input
                     v-model.number="sideA.newPickNumber"
@@ -806,11 +838,11 @@ const filteredExistingTrades = computed(() => {
                     class="w-full bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-slate-200 text-xs font-mono"
                   />
                 </div>
-                <div class="flex items-end">
+                <div class="flex items-end col-span-2 sm:col-span-1">
                   <button
                     type="button"
                     class="w-full py-1 rounded bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs uppercase transition-colors cursor-pointer"
-                    @click="addDraftPickToSide(sideA)"
+                    @click="addDraftPickToSide(sideA, sideB.team_id)"
                   >
                     + Pick
                   </button>
@@ -941,7 +973,10 @@ const filteredExistingTrades = computed(() => {
                   class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-violet-950/40 text-violet-300 border border-violet-500/30 text-xs font-mono"
                 >
                   <Ticket class="w-3 h-3 text-violet-400" />
-                  <span>{{ pick.season_year || formSeasonYear }} Rd {{ pick.round }}{{ pick.pick_number ? ` (#${pick.pick_number})` : '' }}</span>
+                  <span>
+                    {{ pick.season_year || formSeasonYear }} Rd {{ pick.round }}{{ pick.pick_number ? ` (#${pick.pick_number})` : '' }}
+                    <span v-if="pick.original_team_id" class="text-[10px] text-violet-400/90 font-sans">({{ getTeamName(pick.original_team_id) }})</span>
+                  </span>
                   <button
                     type="button"
                     class="text-rose-400 hover:text-rose-300 ml-1 cursor-pointer"
@@ -953,7 +988,7 @@ const filteredExistingTrades = computed(() => {
               </div>
 
               <!-- Inline Add Pick Controls -->
-              <div class="bg-slate-900/90 rounded-lg p-2 border border-slate-800/80 grid grid-cols-4 gap-1.5 text-xs">
+              <div class="bg-slate-900/90 rounded-lg p-2 border border-slate-800/80 grid grid-cols-2 sm:grid-cols-5 gap-1.5 text-xs">
                 <div>
                   <label class="text-[9px] text-slate-500 uppercase font-mono">Year</label>
                   <input
@@ -972,6 +1007,18 @@ const filteredExistingTrades = computed(() => {
                   </select>
                 </div>
                 <div>
+                  <label class="text-[9px] text-slate-500 uppercase font-mono">Orig Team</label>
+                  <select
+                    v-model.number="sideB.newPickOriginalTeamId"
+                    class="w-full bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-slate-200 text-xs font-mono"
+                  >
+                    <option :value="null">Partner (Default)</option>
+                    <option v-for="team in availableSeasonTeams" :key="team.team_id" :value="team.team_id">
+                      {{ team.manager_name || team.team_name }}
+                    </option>
+                  </select>
+                </div>
+                <div>
                   <label class="text-[9px] text-slate-500 uppercase font-mono">Pick # (opt)</label>
                   <input
                     v-model.number="sideB.newPickNumber"
@@ -980,11 +1027,11 @@ const filteredExistingTrades = computed(() => {
                     class="w-full bg-slate-950 border border-slate-800 rounded px-1.5 py-1 text-slate-200 text-xs font-mono"
                   />
                 </div>
-                <div class="flex items-end">
+                <div class="flex items-end col-span-2 sm:col-span-1">
                   <button
                     type="button"
                     class="w-full py-1 rounded bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs uppercase transition-colors cursor-pointer"
-                    @click="addDraftPickToSide(sideB)"
+                    @click="addDraftPickToSide(sideB, sideA.team_id)"
                   >
                     + Pick
                   </button>

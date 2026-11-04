@@ -321,6 +321,41 @@ def test_e2e_api_response_keys_match_typescript_contracts() -> None:
     assert len(tx_json["transactions"][0]["items"]) > 0
     assert_interface(tx_json["transactions"][0]["items"][0], "TransactionItem")
 
+    # 8. Drafts endpoint -> DraftsResponse + FutureDraftData & HistoricalDraftData
+    res_draft_future = client.get("/api/v1/drafts")
+    assert res_draft_future.status_code == 200
+    draft_future_json = res_draft_future.get_json()
+    assert_interface(draft_future_json, "DraftsResponse")
+    assert draft_future_json["is_future_draft"] is True
+    future_data = draft_future_json["future_draft"]
+    assert future_data is not None
+    assert_interface(future_data, "FutureDraftData")
+    assert len(future_data["rounds"]) > 0
+    assert_interface(future_data["rounds"][0], "FutureDraftRound")
+    assert len(future_data["rounds"][0]["picks"]) > 0
+    assert_interface(future_data["rounds"][0]["picks"][0], "FutureDraftPick")
+    assert_interface(future_data["rounds"][0]["picks"][0]["original_team"], "DraftTeamRef")
+    assert len(future_data["teams_summary"]) > 0
+    assert_interface(future_data["teams_summary"][0], "FutureDraftTeamSummary")
+
+    # Historical draft board (2024)
+    res_draft_hist = client.get("/api/v1/drafts?season=2024")
+    assert res_draft_hist.status_code == 200
+    draft_hist_json = res_draft_hist.get_json()
+    assert_interface(draft_hist_json, "DraftsResponse")
+    assert draft_hist_json["is_future_draft"] is False
+    hist_data = draft_hist_json["historical_draft"]
+    assert hist_data is not None
+    assert_interface(hist_data, "HistoricalDraftData")
+    assert len(hist_data["picks"]) > 0
+    assert_interface(hist_data["picks"][0], "HistoricalDraftPick")
+    assert_interface(hist_data["picks"][0]["player"], "HistoricalDraftPlayerRef")
+    assert_interface(hist_data["picks"][0]["drafting_team"], "DraftTeamRef")
+    assert len(hist_data["rounds"]) > 0
+    assert_interface(hist_data["rounds"][0], "HistoricalDraftRound")
+    assert len(hist_data["by_team"]) > 0
+    assert_interface(hist_data["by_team"][0], "HistoricalDraftTeamPicks")
+
     engine.dispose()
 
 

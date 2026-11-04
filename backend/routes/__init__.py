@@ -6,6 +6,7 @@ Purpose:
 
 from __future__ import annotations
 
+from backend.routes.drafts import drafts_bp
 from backend.routes.earnings import earnings_bp
 from backend.routes.hall_of_fame import hall_of_fame_bp
 from backend.routes.media import media_bp
@@ -22,4 +23,5 @@ __all__ = [
     "trades_bp",
     "transactions_bp",
     "media_bp",
+    "drafts_bp",
 ]

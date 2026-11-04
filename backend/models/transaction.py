@@ -18,6 +18,7 @@ from backend.database import Base
 from backend.models.common import JsonType
 
 if TYPE_CHECKING:
+    from backend.models.draft import TradedDraftPick
     from backend.models.player import Player
     from backend.models.season import Season
     from backend.models.team import Team
@@ -98,6 +99,13 @@ class TransactionItem(Base):
     player: Mapped[Player] = relationship("Player", back_populates="transaction_items")
     from_team: Mapped[Team | None] = relationship("Team", foreign_keys=[from_team_id])
     to_team: Mapped[Team | None] = relationship("Team", foreign_keys=[to_team_id])
+    traded_pick: Mapped[TradedDraftPick | None] = relationship(
+        "TradedDraftPick",
+        back_populates="transaction_item",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     def __repr__(self) -> str:
         return (

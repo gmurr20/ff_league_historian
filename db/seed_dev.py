@@ -32,6 +32,7 @@ from backend.database import create_db_engine, init_db
 from backend.jobs.payout_policy import load_season_payout_rules
 from backend.models import (
     DraftPick,
+    DraftSettings,
     EarningsLedger,
     Manager,
     Matchup,
@@ -41,6 +42,7 @@ from backend.models import (
     SyncRun,
     Team,
     Trade,
+    TradedDraftPick,
     Transaction,
     TransactionItem,
     WeeklyLineup,
@@ -117,11 +119,13 @@ def _clear_tables(session: Session) -> None:
     """Clear tables in reverse foreign-key dependency order."""
     session.query(SyncRun).delete()
     session.query(EarningsLedger).delete()
+    session.query(TradedDraftPick).delete()
     session.query(TransactionItem).delete()
     session.query(Trade).delete()
     session.query(Transaction).delete()
     session.query(WeeklyLineup).delete()
     session.query(DraftPick).delete()
+    session.query(DraftSettings).delete()
     session.query(Matchup).delete()
     session.query(Team).delete()
     session.query(Player).delete()
@@ -695,6 +699,17 @@ def _seed_draft_picks(
     player_pool = sorted(players.keys())[:16]
 
     for year in (2023, 2024):
+        settings = DraftSettings(
+            season_year=year,
+            draft_type="SNAKE",
+            order_type="MANUAL",
+            pick_order=[1, 2, 3, 4, 5, 6, 7, 8],
+            keeper_count=1 if year == 2024 else 0,
+            is_drafted=True,
+            raw_settings={"type": "SNAKE", "pickOrder": [1, 2, 3, 4, 5, 6, 7, 8]},
+        )
+        session.add(settings)
+
         overall = 1
         for round_num in (1, 2):
             team_order = range(1, 9) if round_num == 1 else range(8, 0, -1)
