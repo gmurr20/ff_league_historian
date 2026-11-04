@@ -3,7 +3,32 @@
     "ee64229b-8b7c-4e92-9abf-c5e52bade74e"
   ],
   "edited_trades": {
+    "84f604f2-1163-40ce-b93a-a342e68f6e53": {
+      "season_year": 2026,
+      "week": 7,
+      "sides": [
+        {
+          "team_id": 13,
+          "player_ids": [
+            4372016
+          ],
+          "draft_picks": [],
+          "faab_received": 12
+        },
+        {
+          "team_id": 17,
+          "player_ids": [
+            4360248
+          ],
+          "draft_picks": [],
+          "faab_received": 0
+        }
+      ],
+      "proposing_team_id": 13,
+      "accepting_team_id": 17
+    },
     "51056f5f-1511-40d1-a057-69a610de6092": {
+      "season_year": 2026,
       "week": 6,
       "sides": [
         {

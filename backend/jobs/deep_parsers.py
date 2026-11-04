@@ -1093,6 +1093,24 @@ def upsert_transactions_from_payload(
         conv_ids = {str(c.get("id")) for c in converted_trades}
         raw_txs = converted_trades + [tx for tx in raw_txs if str(tx.get("id")) not in conv_ids]
 
+    # Ensure any edited_trades defined in trade_overrides.json are present in raw_txs
+    if season.season_year >= 2018:
+        existing_raw_ids = {str(tx.get("id")) for tx in raw_txs}
+        for e_id, e_val in edited_trades.items():
+            if e_id not in existing_raw_ids and e_val.get("season_year") == season.season_year:
+                raw_txs.append({
+                    "id": e_id,
+                    "type": "TRADE",
+                    "status": "EXECUTED",
+                    "executionType": "PROCESS",
+                    "scoringPeriodId": e_val.get("week", 1),
+                    "matchupPeriodId": e_val.get("week", 1),
+                    "week": e_val.get("week", 1),
+                    "proposingTeamId": e_val.get("proposing_team_id"),
+                    "acceptingTeamId": e_val.get("accepting_team_id"),
+                    "items": [],
+                })
+
     if not raw_txs and "leagueCommunication" in payload:
         raw_txs = payload.get("leagueCommunication", {}).get("topics", [])
 
