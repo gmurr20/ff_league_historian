@@ -885,6 +885,8 @@ def normalize_communication_topics_to_transactions(
                 break
 
         if matched_exec is not None:
+            pt_id = str(pt.get("targetId") or pt.get("id"))
+            matched_exec["matched_proposal_id"] = pt_id
             # Check if matched_exec is missing FAAB and pt has FAAB (284)
             pt_faab_msgs = [m for m in pt.get("messages", []) if m.get("messageTypeId") in (284, 290)]
             exec_faab_msgs = [m for m in matched_exec.get("messages", []) if m.get("messageTypeId") in (284, 290)]
@@ -1005,6 +1007,7 @@ def normalize_communication_topics_to_transactions(
 
         converted.append({
             "id": tx_id,
+            "relatedTransactionId": t.get("matched_proposal_id"),
             "type": "TRADE_ACCEPT",
             "status": "EXECUTED",
             "executionType": "PROCESS",
@@ -1177,6 +1180,7 @@ def upsert_transactions_from_payload(
                     proposal_to_executed_tx[r_rel] = r_id
 
     processed_tx_ids: set[str] = set()
+    executed_proposal_ids: set[str] = set()
     upserted_transactions: list[Transaction] = []
     valid_trade_ids: set[int] = set()
 
@@ -1250,15 +1254,15 @@ def upsert_transactions_from_payload(
             continue
         if raw_type in ("TRADE_ACCEPT", "TRADE_UPHOLD") and related_id:
             rel_str = str(related_id)
-            if rel_str in processed_tx_ids or rel_str in accepted_proposal_ids:
-                logger.debug("Skipping duplicate trade step %s for %s", espn_tx_id, rel_str)
-                continue
             if rel_str in proposal_to_executed_tx and espn_tx_id != proposal_to_executed_tx[rel_str]:
                 logger.debug(
                     "Skipping duplicate trade step %s for finalized trade %s",
                     espn_tx_id,
                     proposal_to_executed_tx[rel_str],
                 )
+                continue
+            if rel_str in processed_tx_ids or rel_str in executed_proposal_ids:
+                logger.debug("Skipping duplicate trade step %s for %s", espn_tx_id, rel_str)
                 continue
             if rel_str in vetoed_proposal_ids:
                 logger.debug("Skipping trade step %s for vetoed trade %s", espn_tx_id, rel_str)
@@ -1274,8 +1278,10 @@ def upsert_transactions_from_payload(
         ):
             continue
 
-        if raw_type == "TRADE_ACCEPT" and related_id:
+        if raw_type in ("TRADE_ACCEPT", "TRADE_UPHOLD") and related_id:
             accepted_proposal_ids.add(str(related_id))
+            if raw_status_val == "EXECUTED" or raw_exec == "PROCESS":
+                executed_proposal_ids.add(str(related_id))
 
         sp = int(raw.get("scoringPeriodId", raw.get("scoring_period", 0)))
         raw_matchup_period = raw.get("matchupPeriodId")

@@ -121,12 +121,16 @@ def diagnose() -> tuple[Any, int]:
     """Return database diagnostic state for trades, transactions, and snapshots."""
     session_factory = current_app.config.get("SESSION_FACTORY", SessionLocal)
     with session_factory() as session:
+        from backend.models.player import Player
         from backend.models.raw_snapshot import RawEspnSnapshot
         from backend.models.trade import Trade
         from backend.models.transaction import Transaction
 
         trades = session.query(Trade).all()
         trade_txs = session.query(Transaction).filter_by(transaction_type="TRADE").all()
+        any_84 = session.query(Transaction).filter_by(espn_transaction_id="84f604f2-1163-40ce-b93a-a342e68f6e53").first()
+        pitts = session.get(Player, 4360248)
+        waddle = session.get(Player, 4372016)
         snapshots = session.query(
             RawEspnSnapshot.season_year, RawEspnSnapshot.view_name, RawEspnSnapshot.scoring_period
         ).all()
@@ -145,13 +149,22 @@ def diagnose() -> tuple[Any, int]:
                             "week": x.week,
                             "status": x.status,
                             "related": x.related_espn_transaction_id,
+                            "type": x.transaction_type,
                         }
                         for x in trade_txs
                     ],
+                    "any_84_tx": {
+                        "id": any_84.id,
+                        "type": any_84.transaction_type,
+                        "status": any_84.status,
+                    } if any_84 else None,
+                    "has_pitts": pitts is not None,
+                    "has_waddle": waddle is not None,
                     "snapshots_count": len(snapshots),
                     "snapshots": [f"{s[0]}_{s[1]}_{s[2]}" for s in snapshots],
                 }
             ),
             200,
         )
+
 
