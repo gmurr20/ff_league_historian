@@ -131,6 +131,16 @@ GRADE_POINTS: dict[str, float] = {
 }
 
 
+def _safe_has_traded_pick(item: Any) -> bool:
+    """Safely check if an item has an attached traded_pick without crashing if table is absent."""
+    try:
+        tp = getattr(item, "traded_pick", None)
+        return bool(tp and getattr(tp, "original_espn_team_id", None))
+    except Exception:
+        return False
+
+
+
 def compute_trade_grade(side_score: float, opp_score: float) -> str:
     """Calculate letter grade based on share of value, starter impact, and score differential.
 
@@ -531,18 +541,18 @@ def _evaluate_trade(
                 "pick_number": pick_number,
                 "pick_round_value": pick_round_value,
                 "original_team_id": (
-                    next((t.id for t in team_map.values() if t.espn_team_id == item.traded_pick.original_espn_team_id), None)
-                    if hasattr(item, "traded_pick") and item.traded_pick and item.traded_pick.original_espn_team_id
+                    next((t.id for t in team_map.values() if t.espn_team_id == getattr(item.traded_pick, "original_espn_team_id", None)), None)
+                    if _safe_has_traded_pick(item)
                     else item.from_team_id
                 ),
                 "original_team_name": (
-                    next((t.team_name for t in team_map.values() if t.espn_team_id == item.traded_pick.original_espn_team_id), None)
-                    if hasattr(item, "traded_pick") and item.traded_pick and item.traded_pick.original_espn_team_id
+                    next((t.team_name for t in team_map.values() if t.espn_team_id == getattr(item.traded_pick, "original_espn_team_id", None)), None)
+                    if _safe_has_traded_pick(item)
                     else (team_map[item.from_team_id].team_name if item.from_team_id in team_map else None)
                 ),
                 "original_manager_name": (
-                    next((mgr_map.get(t.manager_id) for t in team_map.values() if t.espn_team_id == item.traded_pick.original_espn_team_id), None)
-                    if hasattr(item, "traded_pick") and item.traded_pick and item.traded_pick.original_espn_team_id
+                    next((mgr_map.get(t.manager_id) for t in team_map.values() if t.espn_team_id == getattr(item.traded_pick, "original_espn_team_id", None)), None)
+                    if _safe_has_traded_pick(item)
                     else (mgr_map.get(team_map[item.from_team_id].manager_id) if item.from_team_id in team_map else None)
                 ),
                 "drafted_player_id": drafted_player_id,

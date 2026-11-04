@@ -18,7 +18,7 @@
 # ------------------------------------------------------------------------------
 [services.api]
 dockerfilePath = "backend/Dockerfile"
-startCommand = "gunicorn -c backend/gunicorn.conf.py \"backend.app:create_app()\""
+startCommand = "python -c \"from backend.database import init_db; init_db()\" && gunicorn -c backend/gunicorn.conf.py \"backend.app:create_app()\""
 healthcheckPath = "/api/v1/health"
 healthcheckTimeout = 100
 restartPolicyType = "ON_FAILURE"

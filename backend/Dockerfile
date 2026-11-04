@@ -31,7 +31,7 @@ COPY db /app/db
 # Expose default HTTP port
 EXPOSE 5000
 
-# Default command: Gunicorn REST API WSGI server
+# Default command: Gunicorn REST API WSGI server (ensuring schema is initialized)
 # Override with 'python -m backend.jobs.sync_weekly' for Railway weekly cron
 # Override with 'python -m backend.jobs.backfill_history' for one-time historical crawl
-CMD ["gunicorn", "-c", "backend/gunicorn.conf.py", "backend.app:create_app()"]
+CMD ["sh", "-c", "python -c 'from backend.database import init_db; init_db()' && gunicorn -c backend/gunicorn.conf.py 'backend.app:create_app()'"]

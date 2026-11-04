@@ -88,6 +88,13 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         msg = getattr(error, "description", "Internal Server Error")
         return jsonify({"error": "INTERNAL_SERVER_ERROR", "message": msg}), 500
 
+    # Ensure database schema is initialized on startup (creates missing tables/indexes)
+    if not app.config.get("TESTING"):
+        try:
+            init_db()
+        except Exception as e:
+            app.logger.warning("init_db failed during create_app: %s", e)
+
     return app
 
 

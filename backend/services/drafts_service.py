@@ -32,6 +32,15 @@ from backend.models.transaction import Transaction, TransactionItem
 
 def get_draft_data(session: Session, season_filter: int | None = None) -> dict[str, Any]:
     """Retrieve full draft payload for either a future draft (default 2027) or past draft boards."""
+    try:
+        from backend.database import init_db
+
+        bind = session.get_bind()
+        if bind is not None:
+            init_db(bind)
+    except Exception:
+        pass
+
     seasons = session.query(Season).order_by(Season.season_year.desc()).all()
     active_season = next((s for s in seasons if s.is_active), seasons[0] if seasons else None)
 
