@@ -1,68 +1,28 @@
 {
-  "deleted_trades": [
-    "ee64229b-8b7c-4e92-9abf-c5e52bade74e"
-  ],
+  "deleted_trades": [],
   "edited_trades": {
-    "84f604f2-1163-40ce-b93a-a342e68f6e53": {
-      "season_year": 2026,
-      "week": 7,
-      "sides": [
-        {
-          "team_id": 13,
-          "player_ids": [
-            4372016
-          ],
-          "draft_picks": [],
-          "faab_received": 12
-        },
-        {
-          "team_id": 17,
-          "player_ids": [
-            4360248
-          ],
-          "draft_picks": [],
-          "faab_received": 0
-        }
-      ],
-      "proposing_team_id": 13,
-      "accepting_team_id": 17
-    },
     "51056f5f-1511-40d1-a057-69a610de6092": {
       "season_year": 2026,
-      "week": 6,
-      "sides": [
+      "proposing_espn_team_id": 1,
+      "accepting_espn_team_id": 11,
+      "supplemental_picks": [
         {
-          "team_id": 13,
-          "player_ids": [
-            4430807
-          ],
-          "draft_picks": [
-            {
-              "season_year": 2027,
-              "round": 16,
-              "pick_number": null
-            }
-          ],
-          "faab_received": 0
+          "to_espn_team_id": 1,
+          "from_espn_team_id": 11,
+          "season_year": 2027,
+          "round": 16,
+          "pick_number": null,
+          "original_espn_team_id": 11
         },
         {
-          "team_id": 23,
-          "player_ids": [
-            4685382,
-            16800
-          ],
-          "draft_picks": [
-            {
-              "season_year": 2027,
-              "round": 4,
-              "pick_number": null
-            }
-          ],
-          "faab_received": 0
+          "to_espn_team_id": 11,
+          "from_espn_team_id": 1,
+          "season_year": 2027,
+          "round": 4,
+          "pick_number": null,
+          "original_espn_team_id": 1
         }
-      ],
-      "proposing_team_id": 13,
-      "accepting_team_id": 23
+      ]
     }
   }
 }

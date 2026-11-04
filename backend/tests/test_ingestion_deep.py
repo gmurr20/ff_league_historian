@@ -549,3 +549,186 @@ def test_draft_picks_parsing_and_resolution(db_session: Session) -> None:
     picks_again = upsert_draft_picks_from_payload(db_session, season, draft_payload, team_map)
     assert len(picks_again) == 2
     assert db_session.query(DraftPick).filter_by(season_year=2023).count() == 2
+
+
+def test_canonical_trade_overrides_multi_trades_and_supplemental_picks(db_session):
+    """Verifies canonical espn_team_id trade overrides, supplemental future draft picks,
+    accurate NFL week inference for communication topics, and same-pair multi-trade preservation."""
+    from backend.models import Trade, TradedDraftPick, TradeOverride
+    from backend.services.drafts_service import get_draft_data
+    from backend.services.trades_service import get_trades_trends
+
+    f2023 = load_fixture("espn_deep_2023.json")
+    mgr_map = resolve_or_upsert_managers(db_session, f2023)
+    season = upsert_season_from_payload(db_session, f2023)
+    season.is_active = True
+    season.is_completed = False
+    team_map = upsert_teams_from_payload(db_session, season, f2023, mgr_map)
+    upsert_players_from_payload(db_session, f2023)
+
+    # Seed a canonical TradeOverride with supplemental future draft picks (keyed by espn_team_id, not DB team.id)
+    override = TradeOverride(
+        season_year=2023,
+        espn_transaction_id="tx-exec-1",
+        proposing_espn_team_id=1,
+        accepting_espn_team_id=2,
+        supplemental_picks=[
+            {"receiving_espn_team_id": 1, "season_year": 2024, "round": 16},
+            {"receiving_espn_team_id": 2, "season_year": 2024, "round": 4},
+        ],
+    )
+    db_session.add(override)
+    db_session.flush()
+
+    # Construct payload with:
+    # 1. Intermediate TRADE_ACCEPT (status=None, executionType=EXECUTE) -> should be ignored
+    # 2. Single-manager TRADE_VETO ballot (executionType=EXECUTE) -> should be ignored
+    # 3. Two distinct executed trades between the SAME team pair (Team 1 and Team 2) in Week 6
+    #    via communication topics (224 proposal + 244 execution) with October timestamps
+    oct_14_2023_ms = 1697300000000  # Mid-October 2023 -> Week 6
+    oct_15_2023_ms = 1697386400000  # Next day -> still Week 6
+    payload = {
+        "seasonId": 2023,
+        "scoringPeriodId": 1,
+        "Schedule": [],  # Empty schedule to simulate single-week sync where schedule timestamps are absent
+        "transactions": [
+            {
+                "id": "tx-accept-intermediate",
+                "type": "TRADE_ACCEPT",
+                "status": None,
+                "executionType": "EXECUTE",
+                "scoringPeriodId": 6,
+                "teamId": 2,
+                "relatedTransactionId": "tx-prop-1",
+                "items": [],
+            },
+            {
+                "id": "tx-veto-ballot",
+                "type": "TRADE_VETO",
+                "status": None,
+                "executionType": "EXECUTE",
+                "scoringPeriodId": 6,
+                "teamId": 3,
+                "relatedTransactionId": "tx-prop-1",
+                "items": [],
+            },
+        ],
+        "topics": [
+            {
+                "id": "topic-prop-1",
+                "type": "ACTIVITY_TRANSACTIONS",
+                "date": oct_14_2023_ms - 3600000,
+                "messages": [
+                    {
+                        "messageTypeId": 224,
+                        "targetId": "tx-prop-1",
+                        "from": 1,
+                        "to": 2,
+                        "date": oct_14_2023_ms - 3600000,
+                    }
+                ],
+            },
+            {
+                "id": "tx-exec-1",
+                "type": "ACTIVITY_TRANSACTIONS",
+                "date": oct_14_2023_ms,
+                "messages": [
+                    {
+                        "messageTypeId": 244,
+                        "targetId": 4248339,
+                        "date": oct_14_2023_ms,
+                        "for": 1,
+                        "to": 2,
+                    },
+                    {
+                        "messageTypeId": 244,
+                        "targetId": 4362628,
+                        "date": oct_14_2023_ms,
+                        "for": 2,
+                        "to": 1,
+                    },
+                ],
+            },
+            {
+                "id": "topic-prop-2",
+                "type": "ACTIVITY_TRANSACTIONS",
+                "date": oct_15_2023_ms - 3600000,
+                "messages": [
+                    {
+                        "messageTypeId": 224,
+                        "targetId": "tx-prop-2",
+                        "from": 1,
+                        "to": 2,
+                        "date": oct_15_2023_ms - 3600000,
+                    }
+                ],
+            },
+            {
+                "id": "tx-exec-2",
+                "type": "ACTIVITY_TRANSACTIONS",
+                "date": oct_15_2023_ms,
+                "messages": [
+                    {
+                        "messageTypeId": 244,
+                        "targetId": 3117251,
+                        "date": oct_15_2023_ms,
+                        "for": 1,
+                        "to": 2,
+                    },
+                    {
+                        "messageTypeId": 244,
+                        "targetId": 4047365,
+                        "date": oct_15_2023_ms,
+                        "for": 2,
+                        "to": 1,
+                    },
+                ],
+            },
+        ],
+    }
+
+    upsert_transactions_from_payload(db_session, season, payload, team_map)
+    db_session.commit()
+
+    # Both executed trades between Team 1 and Team 2 must exist independently in Week 6
+    t1 = db_session.query(Trade).filter_by(season_year=2023, espn_transaction_id="tx-exec-1").first()
+    t2 = db_session.query(Trade).filter_by(season_year=2023, espn_transaction_id="tx-exec-2").first()
+    assert t1 is not None
+    assert t2 is not None
+    assert t1.id != t2.id
+    assert t1.week == 6
+    assert t2.week == 6
+    assert t1.status == "EXECUTED"
+    assert t2.status == "EXECUTED"
+
+    # Intermediate TRADE_ACCEPT and TRADE_VETO ballot must not create Trade records
+    assert db_session.query(Trade).filter_by(espn_transaction_id="tx-accept-intermediate").first() is None
+    assert db_session.query(Trade).filter_by(espn_transaction_id="tx-veto-ballot").first() is None
+
+    # Supplemental 2024 picks on tx-exec-1 must be materialized into TradedDraftPick rows
+    traded_2024 = db_session.query(TradedDraftPick).filter_by(draft_year=2024).order_by(TradedDraftPick.round).all()
+    assert len(traded_2024) == 2
+    assert traded_2024[0].round == 4
+    assert traded_2024[0].transaction_item.from_team_id == team_map[1].id
+    assert traded_2024[0].transaction_item.to_team_id == team_map[2].id
+    assert traded_2024[1].round == 16
+    assert traded_2024[1].transaction_item.from_team_id == team_map[2].id
+    assert traded_2024[1].transaction_item.to_team_id == team_map[1].id
+
+    # Verify trades trends service returns both executed trades and includes the supplemental picks in assets_received
+    trends = get_trades_trends(db_session, season_filter=2023)
+    exec_ids = {r["espn_transaction_id"] for r in trends["trades"]}
+    assert "tx-exec-1" in exec_ids
+    assert "tx-exec-2" in exec_ids
+    tx1_record = next(r for r in trends["trades"] if r["espn_transaction_id"] == "tx-exec-1")
+    side_a_names = [p["full_name"] for p in tx1_record["sides"][0]["assets_received"]]
+    side_b_names = [p["full_name"] for p in tx1_record["sides"][1]["assets_received"]]
+    assert "2024 Round 16 Pick" in side_a_names
+    assert "2024 Round 4 Pick" in side_b_names
+
+    # Verify Drafts page future draft board shows the traded 2024 picks
+    drafts_data = get_draft_data(db_session, season_filter=None)
+    assert drafts_data["future_draft"] is not None
+    assert len(drafts_data["future_draft"]["traded_picks_log"]) == 2
+
+

@@ -23,12 +23,14 @@ from sqlalchemy.orm import Session
 from backend.jobs.draft_assets import (
     attach_espn_pick_identity,
     build_pick_trade_item,
+    pick_order_from_payload,
 )
-from backend.jobs.parsers import load_trade_overrides
+from backend.jobs.parsers import get_combined_trade_overrides
 from backend.models.draft import DraftPick
 from backend.models.lineup import WeeklyLineup
 from backend.models.matchup import Matchup
 from backend.models.player import Player
+from backend.models.raw_snapshot import RawEspnSnapshot
 from backend.models.season import Season
 from backend.models.team import Team
 from backend.models.trade import Trade
@@ -169,6 +171,7 @@ def _resolve_team_id(
     season_year: int,
     session: Session,
     team_lookup: dict[int, Team],
+    prefer_espn_id: bool = False,
 ) -> int | None:
     """Resolve internal Team.id from DB id, espn_team_id, or team_lookup mapping."""
     if not t_val:
@@ -177,6 +180,17 @@ def _resolve_team_id(
         t_int = int(t_val)
     except (ValueError, TypeError):
         return None
+
+    if prefer_espn_id:
+        if t_int in team_lookup:
+            return team_lookup[t_int].id
+        team_by_espn = (
+            session.query(Team)
+            .filter_by(espn_team_id=t_int, season_year=season_year)
+            .first()
+        )
+        if team_by_espn:
+            return team_by_espn.id
 
     team_by_id = session.query(Team).filter_by(id=t_int, season_year=season_year).first()
     if team_by_id:
@@ -190,6 +204,28 @@ def _resolve_team_id(
         return team_by_espn.id
 
     return None
+
+
+def _resolve_side_team_id(
+    side: dict[str, Any],
+    season_year: int,
+    session: Session,
+    team_lookup: dict[int, Team],
+) -> int | None:
+    """Resolve a trade side's Team.id, preferring canonical espn_team_id when present."""
+    if not isinstance(side, dict):
+        return None
+    if side.get("espn_team_id") is not None:
+        resolved = _resolve_team_id(
+            side.get("espn_team_id"),
+            season_year,
+            session,
+            team_lookup,
+            prefer_espn_id=True,
+        )
+        if resolved is not None:
+            return resolved
+    return _resolve_team_id(side.get("team_id"), season_year, session, team_lookup)
 
 
 def normalize_position(raw_pos: Any) -> str:
@@ -805,44 +841,165 @@ def upsert_weekly_lineups_from_payload(
     return upserted_lineups
 
 
+def _infer_nfl_week_from_timestamp(
+    ts_sec: float,
+    week_ranges: list[tuple[int, float, float]],
+    default_season_year: int | None = None,
+) -> int:
+    """Resolve NFL fantasy week (0 for Preseason, 1..18 for season) from epoch seconds."""
+    if not ts_sec or ts_sec <= 0:
+        return 1
+
+    dt = datetime.fromtimestamp(ts_sec, tz=UTC)
+    if dt.month <= 8:
+        return 0
+
+    sep1_weekday = datetime(dt.year, 9, 1, tzinfo=UTC).weekday()
+    first_monday_day = 1 + (0 - sep1_weekday) % 7
+    w1_start_dt = datetime(dt.year, 9, first_monday_day + 1, 0, 0, tzinfo=UTC)
+    w1_rollover_anchor_sec = datetime(dt.year, 9, first_monday_day + 2, 8, 0, tzinfo=UTC).timestamp()
+
+    if ts_sec < w1_start_dt.timestamp():
+        return 0
+
+    if week_ranges:
+        for wk, start_ts, end_ts in week_ranges:
+            if start_ts - 1.5 * 86400 <= ts_sec <= end_ts + 1.5 * 86400:
+                return wk
+
+        if week_ranges[0][0] == 1 and ts_sec < week_ranges[0][1] - 2 * 86400:
+            return 0
+
+        closest_wk, c_start, c_end = min(
+            week_ranges,
+            key=lambda r: min(abs(ts_sec - r[1]), abs(ts_sec - r[2])),
+        )
+        anchor_mid = (c_start + c_end) / 2.0
+        delta_weeks = round((ts_sec - anchor_mid) / (7.0 * 86400.0))
+        inferred_wk = closest_wk + int(delta_weeks)
+        if inferred_wk >= 1:
+            return min(18, inferred_wk)
+
+    days_since_w1 = (ts_sec - w1_rollover_anchor_sec) / 86400.0
+    if days_since_w1 < 0:
+        return 1
+    return max(1, min(18, int(days_since_w1 // 7) + 1))
+
+
 def normalize_communication_topics_to_transactions(
     topics: list[dict[str, Any]],
     raw_txs: list[dict[str, Any]] | None = None,
+    session: Session | None = None,
+    season_year: int | None = None,
 ) -> list[dict[str, Any]]:
     """Convert executed trade topics from kona_league_communication into normalized transactions.
 
     Args:
         topics: List of topic dictionaries from kona_league_communication.
         raw_txs: Optional list of raw transactions used to derive exact timestamp boundaries per week.
+        session: Optional SQLAlchemy session for cross-referencing stored season transactions.
+        season_year: Optional season year for DB transaction/snapshot week lookup.
 
     Returns:
         List of normalized transaction dictionaries suitable for upsert_transactions_from_payload.
     """
-    # Build week timestamp ranges from raw_txs if available (excluding week 0)
+    tx_by_week: dict[int, list[float]] = defaultdict(list)
+    tx_week_by_id: dict[str, int] = {}
+    tx_prop_date_by_id: dict[str, Any] = {}
+    prop_team_by_id: dict[str, int] = {}
+
+    def _ingest_tx_meta(tx: dict[str, Any]) -> None:
+        w_val = (
+            tx.get("matchupPeriodId")
+            if tx.get("matchupPeriodId") is not None
+            else tx.get("week", tx.get("scoringPeriodId", 0))
+        )
+        try:
+            w_int = int(w_val or 0)
+        except (ValueError, TypeError):
+            w_int = 0
+
+        ts = (
+            tx.get("proposedDate")
+            or tx.get("executionDate")
+            or tx.get("proposed_at")
+            or tx.get("executed_at")
+        )
+        t_sec: float | None = None
+        if ts:
+            if isinstance(ts, (int, float)):
+                t_sec = ts / 1000.0 if ts > 1e11 else float(ts)
+            elif isinstance(ts, str):
+                try:
+                    t_sec = datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+                except ValueError:
+                    pass
+
+        if w_int > 0 and t_sec:
+            dt_check = datetime.fromtimestamp(t_sec, tz=UTC)
+            if dt_check.month >= 9 or dt_check.month <= 2:
+                tx_by_week[w_int].append(t_sec)
+
+        tid = str(tx.get("id") or "")
+        rel_id = str(tx.get("relatedTransactionId") or "")
+        if w_int > 0 or (w_int == 0 and t_sec and datetime.fromtimestamp(t_sec, tz=UTC).month <= 8):
+            if tid:
+                tx_week_by_id[tid] = w_int
+            if rel_id:
+                tx_week_by_id[rel_id] = w_int
+
+        tx_type_str = str(tx.get("type", "")).upper()
+        if tx_type_str == "TRADE_PROPOSAL":
+            if tx.get("teamId"):
+                if tid:
+                    prop_team_by_id[tid] = int(tx["teamId"])
+                if rel_id:
+                    prop_team_by_id[rel_id] = int(tx["teamId"])
+            if tx.get("proposedDate"):
+                if tid:
+                    tx_prop_date_by_id[tid] = tx["proposedDate"]
+                if rel_id:
+                    tx_prop_date_by_id[rel_id] = tx["proposedDate"]
+
+    for tx in raw_txs or []:
+        if isinstance(tx, dict):
+            _ingest_tx_meta(tx)
+
+    if session is not None and season_year is not None:
+        try:
+            snaps = (
+                session.query(RawEspnSnapshot)
+                .filter(RawEspnSnapshot.season_year == season_year)
+                .all()
+            )
+            for snap in snaps:
+                if isinstance(snap.payload, dict):
+                    for stx in snap.payload.get("transactions") or []:
+                        if isinstance(stx, dict):
+                            _ingest_tx_meta(stx)
+            db_txs = (
+                session.query(Transaction)
+                .filter(Transaction.season_year == season_year)
+                .all()
+            )
+            for dtx in db_txs:
+                dt_obj = dtx.executed_at or dtx.proposed_at
+                if dt_obj is not None:
+                    t_sec = dt_obj.timestamp()
+                    dt_utc = datetime.fromtimestamp(t_sec, tz=UTC)
+                    if dtx.week and dtx.week > 0 and (dt_utc.month >= 9 or dt_utc.month <= 2):
+                        tx_by_week[dtx.week].append(t_sec)
+                        tx_week_by_id.setdefault(dtx.espn_transaction_id, dtx.week)
+                        if dtx.related_espn_transaction_id:
+                            tx_week_by_id.setdefault(dtx.related_espn_transaction_id, dtx.week)
+        except Exception:
+            pass
+
     week_ranges: list[tuple[int, float, float]] = []
-    if raw_txs:
-        tx_by_week: dict[int, list[float]] = defaultdict(list)
-        for tx in raw_txs:
-            w_val = tx.get("matchupPeriodId") if tx.get("matchupPeriodId") is not None else tx.get("week", tx.get("scoringPeriodId", 0))
-            w_int = int(w_val)
-            if w_int <= 0:
-                continue
-            ts = tx.get("proposedDate") or tx.get("executionDate") or tx.get("proposed_at") or tx.get("executed_at")
-            if ts:
-                t_sec: float | None = None
-                if isinstance(ts, (int, float)):
-                    t_sec = ts / 1000.0 if ts > 1e11 else float(ts)
-                elif isinstance(ts, str):
-                    try:
-                        t_sec = datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
-                    except ValueError:
-                        pass
-                if t_sec:
-                    tx_by_week[w_int].append(t_sec)
-        for wk, ts_list in tx_by_week.items():
-            if ts_list:
-                week_ranges.append((wk, min(ts_list), max(ts_list)))
-        week_ranges.sort(key=lambda r: r[0])
+    for wk, ts_list in tx_by_week.items():
+        if ts_list:
+            week_ranges.append((wk, min(ts_list), max(ts_list)))
+    week_ranges.sort(key=lambda r: r[0])
 
     exec_topics: list[dict[str, Any]] = []
     prop_topics: list[dict[str, Any]] = []
@@ -872,29 +1029,33 @@ def normalize_communication_topics_to_transactions(
         return frozenset(teams), frozenset(assets)
 
     exec_fingerprints = [_topic_fingerprint(t) for t in exec_topics]
+    used_exec_indices: set[int] = set()
 
-    # For each prop topic, if it matches an exec topic, merge any FAAB (284) into the exec topic
-    # and mark prop topic as duplicate.
     filtered_prop_topics: list[dict[str, Any]] = []
     for pt in prop_topics:
         p_teams, p_assets = _topic_fingerprint(pt)
+        pt_date = float(pt.get("date") or 0)
         matched_exec: dict[str, Any] | None = None
         for i, (e_teams, e_assets) in enumerate(exec_fingerprints):
-            if p_teams == e_teams and (p_assets & e_assets):
+            if i in used_exec_indices:
+                continue
+            et_date = float(exec_topics[i].get("date") or 0)
+            date_ok = (not pt_date or not et_date) or abs(et_date - pt_date) <= 10 * 86400 * 1000
+            if p_teams == e_teams and (p_assets & e_assets) and date_ok:
                 matched_exec = exec_topics[i]
+                used_exec_indices.add(i)
                 break
 
         if matched_exec is not None:
             pt_id = str(pt.get("targetId") or pt.get("id"))
             matched_exec["matched_proposal_id"] = pt_id
-            # Check if matched_exec is missing FAAB and pt has FAAB (284)
+            if pt.get("date") and not matched_exec.get("proposed_date"):
+                matched_exec["proposed_date"] = pt.get("date")
             pt_faab_msgs = [m for m in pt.get("messages", []) if m.get("messageTypeId") in (284, 290)]
             exec_faab_msgs = [m for m in matched_exec.get("messages", []) if m.get("messageTypeId") in (284, 290)]
             if pt_faab_msgs and not exec_faab_msgs:
                 matched_exec.setdefault("messages", []).extend(pt_faab_msgs)
         else:
-            # Standalone proposal topic (e.g. upheld trade without a 244 topic)
-            # Only include if raw_txs confirms it was executed (e.g. TRADE_UPHOLD or TRADE_ACCEPT EXECUTED)
             pt_id = str(pt.get("targetId") or pt.get("id"))
             is_confirmed_executed = any(
                 (str(tx.get("id")) == pt_id or str(tx.get("relatedTransactionId")) == pt_id)
@@ -917,50 +1078,40 @@ def normalize_communication_topics_to_transactions(
             continue
 
         tx_id = str(t.get("targetId") or t.get("id"))
+        matched_prop_id = str(t.get("matched_proposal_id") or "")
         ts_ms = t.get("date", 0)
         ts_sec = ts_ms / 1000.0 if ts_ms > 1e11 else float(ts_ms)
+        prop_ts_ms = (
+            tx_prop_date_by_id.get(tx_id)
+            or (tx_prop_date_by_id.get(matched_prop_id) if matched_prop_id else None)
+            or t.get("proposed_date")
+            or ts_ms
+        )
 
-        # Determine week based on schedule ranges or timestamp
-        w = 1
-        if week_ranges and ts_sec:
-            if ts_sec < week_ranges[0][1] - 86400:
-                w = 0
-            else:
-                for wk, start_ts, end_ts in week_ranges:
-                    if start_ts - 86400 <= ts_sec <= end_ts + 86400:
-                        w = wk
-                        break
-                else:
-                    closest = min(week_ranges, key=lambda r: min(abs(ts_sec - r[1]), abs(ts_sec - r[2])))
-                    w = closest[0]
-        elif ts_sec:
-            dt = datetime.fromtimestamp(ts_sec, tz=UTC)
-            w = 0 if dt.month <= 8 else 1
+        if tx_id in tx_week_by_id:
+            w = tx_week_by_id[tx_id]
+        elif matched_prop_id and matched_prop_id in tx_week_by_id:
+            w = tx_week_by_id[matched_prop_id]
+        else:
+            w = _infer_nfl_week_from_timestamp(ts_sec, week_ranges, default_season_year=season_year)
 
         items: list[dict[str, Any]] = []
         faab_prop = 0
         faab_acc = 0
         faab_by_from_team: dict[int, int] = {}
 
-        teams_in_trade = set()
+        teams_in_trade: set[int] = set()
         for m in trade_msgs:
             if m.get("from"):
-                teams_in_trade.add(m.get("from"))
+                teams_in_trade.add(int(m.get("from")))
             if m.get("to"):
-                teams_in_trade.add(m.get("to"))
+                teams_in_trade.add(int(m.get("to")))
 
-        # Look for matching proposal transaction in raw_txs to identify the true proposing team
-        prop_tx = next(
-            (
-                tx for tx in (raw_txs or [])
-                if str(tx.get("type", "")).upper() == "TRADE_PROPOSAL"
-                and (str(tx.get("id")) == str(tx_id) or str(tx.get("relatedTransactionId")) == str(tx_id))
-                and tx.get("teamId") in teams_in_trade
-            ),
-            None,
+        known_prop_team = prop_team_by_id.get(tx_id) or (
+            prop_team_by_id.get(matched_prop_id) if matched_prop_id else None
         )
-        if prop_tx and prop_tx.get("teamId"):
-            prop_team = prop_tx.get("teamId")
+        if known_prop_team and known_prop_team in teams_in_trade:
+            prop_team = known_prop_team
             other_teams = teams_in_trade - {prop_team}
             acc_team = next(iter(other_teams)) if other_teams else None
         else:
@@ -1015,7 +1166,7 @@ def normalize_communication_topics_to_transactions(
             "matchupPeriodId": w,
             "week": w,
             "executionDate": ts_ms,
-            "proposedDate": ts_ms,
+            "proposedDate": prop_ts_ms,
             "proposingTeamId": prop_team,
             "acceptingTeamId": acc_team,
             "faabFromProposer": faab_prop,
@@ -1050,11 +1201,17 @@ def upsert_transactions_from_payload(
     """
     raw_txs: list[dict[str, Any]] = list(payload.get("transactions", []))
     topics = payload.get("topics", []) or payload.get("communication", {}).get("topics", [])
-    trade_overrides = load_trade_overrides()
+    trade_overrides = get_combined_trade_overrides(session)
     deleted_trade_ids = set(trade_overrides.get("deleted_trades", []))
     edited_trades = trade_overrides.get("edited_trades", {})
+    payload_pick_order, payload_draft_type = pick_order_from_payload(payload)
     if topics:
-        converted_trades = normalize_communication_topics_to_transactions(topics, raw_txs=raw_txs)
+        converted_trades = normalize_communication_topics_to_transactions(
+            topics,
+            raw_txs=raw_txs,
+            session=session,
+            season_year=season.season_year,
+        )
         existing_txs_by_rel_id = {
             str(tx.get("relatedTransactionId")): tx
             for tx in raw_txs
@@ -1093,11 +1250,15 @@ def upsert_transactions_from_payload(
         conv_ids = {str(c.get("id")) for c in converted_trades}
         raw_txs = converted_trades + [tx for tx in raw_txs if str(tx.get("id")) not in conv_ids]
 
-    # Ensure any edited_trades defined in trade_overrides.json are present in raw_txs
+    # Ensure any manual trades defined in overrides are present in raw_txs
     if season.season_year >= 2018:
         existing_raw_ids = {str(tx.get("id")) for tx in raw_txs}
         for e_id, e_val in edited_trades.items():
-            if e_id not in existing_raw_ids and e_val.get("season_year") == season.season_year:
+            if (
+                e_id not in existing_raw_ids
+                and e_val.get("season_year") == season.season_year
+                and (e_val.get("is_manual") or str(e_id).startswith("manual-trade-"))
+            ):
                 raw_txs.append({
                     "id": e_id,
                     "type": "TRADE",
@@ -1106,8 +1267,8 @@ def upsert_transactions_from_payload(
                     "scoringPeriodId": e_val.get("week", 1),
                     "matchupPeriodId": e_val.get("week", 1),
                     "week": e_val.get("week", 1),
-                    "proposingTeamId": e_val.get("proposing_team_id"),
-                    "acceptingTeamId": e_val.get("accepting_team_id"),
+                    "proposingTeamId": e_val.get("proposing_espn_team_id") or e_val.get("proposing_team_id"),
+                    "acceptingTeamId": e_val.get("accepting_espn_team_id") or e_val.get("accepting_team_id"),
                     "items": [],
                 })
 
@@ -1189,13 +1350,15 @@ def upsert_transactions_from_payload(
 
         if r_type == "TRADE_PROPOSAL" and r_id:
             pass
-        elif r_type == "TRADE_VETO" and r_status == "EXECUTED" and r_rel:
+        elif r_type == "TRADE_VETO" and r_status == "EXECUTED" and r_exec == "PROCESS" and r_rel:
             vetoed_proposal_ids.add(r_rel)
         elif r_type in ("TRADE_ACCEPT", "TRADE"):
             if r_status in ("EXECUTED", "SUCCESS") or r_exec == "PROCESS":
                 executed_trade_tx_ids.add(r_id)
-                if r_rel:
+                if r_rel and (r_rel not in proposal_to_executed_tx or r_exec == "PROCESS"):
                     proposal_to_executed_tx[r_rel] = r_id
+
+    vetoed_proposal_ids -= set(proposal_to_executed_tx.keys()) | executed_trade_tx_ids
 
     processed_tx_ids: set[str] = set()
     executed_proposal_ids: set[str] = set()
@@ -1286,15 +1449,18 @@ def upsert_transactions_from_payload(
                 logger.debug("Skipping trade step %s for vetoed trade %s", espn_tx_id, rel_str)
                 continue
 
-        # If a trade accept has no status and executionType is EXECUTE with empty items, it is an
-        # intermediate owner-approval step awaiting the league voting period. Skip if unexecuted.
+        # Skip intermediate owner-approval or uphold-vote records that contain no TRADE items
         if (
-            raw_type == "TRADE_ACCEPT"
+            raw_type in ("TRADE_ACCEPT", "TRADE_UPHOLD")
             and not raw_status_val
             and raw_exec == "EXECUTE"
-            and not raw.get("items")
         ):
-            continue
+            has_trade_items = any(
+                str(it.get("type", "")).upper() in ("TRADE", "DRAFT_TRADE")
+                for it in (raw.get("items") or [])
+            )
+            if not has_trade_items:
+                continue
 
         if raw_type in ("TRADE_ACCEPT", "TRADE_UPHOLD") and related_id:
             accepted_proposal_ids.add(str(related_id))
@@ -1398,6 +1564,12 @@ def upsert_transactions_from_payload(
         espn_team_id = raw.get("teamId")
         team_id = team_lookup[espn_team_id].id if espn_team_id in team_lookup else None
 
+        edit_data = edited_trades.get(espn_tx_id) or (
+            edited_trades.get(str(related_id)) if related_id else None
+        )
+        if tx_type == "TRADE" and edit_data and edit_data.get("week") is not None:
+            w = int(edit_data["week"])
+
         tx = (
             session.query(Transaction)
             .filter_by(season_year=season.season_year, espn_transaction_id=espn_tx_id)
@@ -1439,10 +1611,17 @@ def upsert_transactions_from_payload(
             tx.is_commissioner_override = is_commish
             tx.related_espn_transaction_id = related_id
 
-        # Check if commissioner edited this trade
-        edit_data = edited_trades.get(espn_tx_id) or (
-            edited_trades.get(str(related_id)) if related_id else None
-        )
+        if tx_type == "TRADE" and related_id and str(related_id) != espn_tx_id:
+            superseded_tx = (
+                session.query(Transaction)
+                .filter_by(season_year=season.season_year, espn_transaction_id=str(related_id))
+                .first()
+            )
+            if superseded_tx and superseded_tx.id != tx.id:
+                session.query(TransactionItem).filter_by(transaction_id=superseded_tx.id).delete()
+                session.delete(superseded_tx)
+                session.flush()
+
         is_commish_edited = (
             tx_type == "TRADE"
             and (
@@ -1456,16 +1635,17 @@ def upsert_transactions_from_payload(
         )
 
         items_to_add: list[TransactionItem] = []
+        used_override_sides = False
         if is_commish_edited and edit_data and len(edit_data.get("sides", [])) >= 2:
-            # Reconstruct items directly from commissioner override and persist to DB
-            session.query(TransactionItem).filter_by(transaction_id=tx.id).delete()
             sides = edit_data["sides"]
             side_a = sides[0]
             side_b = sides[1]
-            side_a_tid = _resolve_team_id(side_a.get("team_id"), season.season_year, session, team_lookup)
-            side_b_tid = _resolve_team_id(side_b.get("team_id"), season.season_year, session, team_lookup)
+            side_a_tid = _resolve_side_team_id(side_a, season.season_year, session, team_lookup)
+            side_b_tid = _resolve_side_team_id(side_b, season.season_year, session, team_lookup)
 
             if side_a_tid and side_b_tid:
+                used_override_sides = True
+                session.query(TransactionItem).filter_by(transaction_id=tx.id).delete()
                 # Side A receives from Side B
                 for p_id in side_a.get("player_ids", []):
                     pid = int(p_id)
@@ -1516,114 +1696,172 @@ def upsert_transactions_from_payload(
                         )
                     )
 
-            session.add_all(items_to_add)
-            session.flush()
-        elif is_commish_edited and tx.items:
-            items_to_add = list(tx.items)
-        else:
-            # Normalize and upsert transaction items from ESPN
-            session.query(TransactionItem).filter_by(transaction_id=tx.id).delete()
+                session.add_all(items_to_add)
+                session.flush()
 
-            raw_items = list(raw.get("items") or [])
-            if tx_type == "TRADE":
-                item_sources = []
-                if related_id and str(related_id) in proposal_items_by_id:
-                    item_sources.extend(proposal_items_by_id[str(related_id)])
-                if espn_tx_id in proposal_items_by_id:
-                    item_sources.extend(proposal_items_by_id[espn_tx_id])
-                existing_pids = {int(it.get("playerId") or 0) for it in raw_items}
-                existing_picks = {int(it.get("overallPickNumber") or 0) for it in raw_items}
-                for prop_item in item_sources:
-                    prop_pid = int(prop_item.get("playerId") or 0)
-                    prop_pick = int(prop_item.get("overallPickNumber") or 0)
-                    if prop_pid and prop_pid not in existing_pids:
-                        raw_items.append(prop_item)
-                        existing_pids.add(prop_pid)
-                    elif prop_pick and not any(int(it.get("overallPickNumber") or 0) == prop_pick for it in raw_items):
-                        raw_items.append(prop_item)
-                        existing_picks.add(prop_pick)
+        if not used_override_sides:
+            if is_commish_edited and not edit_data and tx.items:
+                items_to_add = list(tx.items)
+            else:
+                # Normalize and upsert transaction items from ESPN
+                session.query(TransactionItem).filter_by(transaction_id=tx.id).delete()
 
-            for item in raw_items:
-                raw_item_type = str(item.get("type", "")).upper()
-                if raw_item_type == "LINEUP":
-                    continue
+                raw_items = list(raw.get("items") or [])
+                if tx_type == "TRADE":
+                    item_sources = []
+                    if related_id and str(related_id) in proposal_items_by_id:
+                        item_sources.extend(proposal_items_by_id[str(related_id)])
+                    if espn_tx_id in proposal_items_by_id:
+                        item_sources.extend(proposal_items_by_id[espn_tx_id])
+                    existing_pids = {int(it.get("playerId") or 0) for it in raw_items}
+                    existing_picks = {int(it.get("overallPickNumber") or 0) for it in raw_items}
+                    for prop_item in item_sources:
+                        prop_pid = int(prop_item.get("playerId") or 0)
+                        prop_pick = int(prop_item.get("overallPickNumber") or 0)
+                        if prop_pid and prop_pid not in existing_pids:
+                            raw_items.append(prop_item)
+                            existing_pids.add(prop_pid)
+                        elif prop_pick and not any(int(it.get("overallPickNumber") or 0) == prop_pick for it in raw_items):
+                            raw_items.append(prop_item)
+                            existing_picks.add(prop_pick)
 
-                pick_num = int(item.get("overallPickNumber") or 0)
-                pid = int(
-                    item.get("playerId")
-                    or item.get("playerPoolEntry", {}).get("player", {}).get("id")
-                    or item.get("player", {}).get("id", 0)
-                )
+                for item in raw_items:
+                    raw_item_type = str(item.get("type", "")).upper()
+                    if raw_item_type == "LINEUP":
+                        continue
 
-                # Support draft pick trades (DRAFT_TRADE items with overallPickNumber)
-                if (raw_item_type == "DRAFT_TRADE" or pick_num > 0) and not pid:
-                    pid = -100000 - pick_num
-                    league_size = len(team_lookup) if team_lookup else 12
-                    round_num = ((pick_num - 1) // league_size) + 1
-                    pick_in_round = ((pick_num - 1) % league_size) + 1
-                    pick_name = f"Round {round_num} Pick #{pick_num} (Pick {round_num}.{pick_in_round:02d})"
+                    pick_num = int(item.get("overallPickNumber") or 0)
+                    pid = int(
+                        item.get("playerId")
+                        or item.get("playerPoolEntry", {}).get("player", {}).get("id")
+                        or item.get("player", {}).get("id", 0)
+                    )
+
+                    # Support draft pick trades (DRAFT_TRADE items with overallPickNumber)
+                    if (raw_item_type == "DRAFT_TRADE" or pick_num > 0) and not pid:
+                        pid = -100000 - pick_num
+                        league_size = len(team_lookup) if team_lookup else 12
+                        round_num = ((pick_num - 1) // league_size) + 1
+                        pick_in_round = ((pick_num - 1) % league_size) + 1
+                        pick_name = f"Round {round_num} Pick #{pick_num} (Pick {round_num}.{pick_in_round:02d})"
+                        if not session.get(Player, pid):
+                            session.add(
+                                Player(
+                                    espn_player_id=pid,
+                                    full_name=pick_name,
+                                    default_position="PICK",
+                                    pro_team="DRAFT",
+                                )
+                            )
+                            session.flush()
+
+                    if not pid:
+                        continue
+
+                    # Ensure player exists
                     if not session.get(Player, pid):
                         session.add(
                             Player(
                                 espn_player_id=pid,
-                                full_name=pick_name,
-                                default_position="PICK",
-                                pro_team="DRAFT",
+                                full_name=f"Player {pid}",
+                                default_position="FLEX",
+                                pro_team="FA",
                             )
                         )
                         session.flush()
 
-                if not pid:
-                    continue
+                    from_espn = item.get("fromTeamId")
+                    to_espn = item.get("toTeamId")
+                    from_tid = team_lookup[from_espn].id if from_espn in team_lookup else None
+                    to_tid = team_lookup[to_espn].id if to_espn in team_lookup else None
 
-                # Ensure player exists
-                if not session.get(Player, pid):
-                    session.add(
-                        Player(
-                            espn_player_id=pid,
-                            full_name=f"Player {pid}",
-                            default_position="FLEX",
-                            pro_team="FA",
+                    if raw_item_type in ("ADD", "DROP", "TRADE", "DRAFT_TRADE"):
+                        item_type = "TRADE" if raw_item_type == "DRAFT_TRADE" else raw_item_type
+                    elif from_tid and to_tid and from_tid != to_tid:
+                        item_type = "TRADE"
+                    elif to_tid and not from_tid:
+                        item_type = "ADD"
+                    elif from_tid and not to_tid:
+                        item_type = "DROP"
+                    else:
+                        item_type = "ADD"
+
+                    t_item = TransactionItem(
+                        transaction_id=tx.id,
+                        player_id=pid,
+                        from_team_id=from_tid,
+                        to_team_id=to_tid,
+                        item_type=item_type,
+                    )
+                    if raw_item_type == "DRAFT_TRADE" or pick_num > 0:
+                        attach_espn_pick_identity(
+                            t_item,
+                            season_year=season.season_year,
+                            overall_pick=pick_num,
+                            pick_order=payload_pick_order,
+                            draft_type=payload_draft_type,
+                            league_size=len(team_lookup) if team_lookup else 12,
                         )
+                        if t_item.traded_pick and t_item.traded_pick.original_espn_team_id is None and from_espn:
+                            t_item.traded_pick.original_espn_team_id = int(from_espn)
+                    items_to_add.append(t_item)
+
+                if tx_type == "TRADE" and edit_data and edit_data.get("supplemental_picks"):
+                    prop_fallback_tid = _resolve_team_id(
+                        edit_data.get("proposing_espn_team_id") or raw.get("proposingTeamId"),
+                        season.season_year,
+                        session,
+                        team_lookup,
+                        prefer_espn_id=True,
                     )
-                    session.flush()
-
-                from_espn = item.get("fromTeamId")
-                to_espn = item.get("toTeamId")
-                from_tid = team_lookup[from_espn].id if from_espn in team_lookup else None
-                to_tid = team_lookup[to_espn].id if to_espn in team_lookup else None
-
-                if raw_item_type in ("ADD", "DROP", "TRADE", "DRAFT_TRADE"):
-                    item_type = "TRADE" if raw_item_type == "DRAFT_TRADE" else raw_item_type
-                elif from_tid and to_tid and from_tid != to_tid:
-                    item_type = "TRADE"
-                elif to_tid and not from_tid:
-                    item_type = "ADD"
-                elif from_tid and not to_tid:
-                    item_type = "DROP"
-                else:
-                    item_type = "ADD"
-
-                t_item = TransactionItem(
-                    transaction_id=tx.id,
-                    player_id=pid,
-                    from_team_id=from_tid,
-                    to_team_id=to_tid,
-                    item_type=item_type,
-                )
-                if raw_item_type == "DRAFT_TRADE" or pick_num > 0:
-                    attach_espn_pick_identity(
-                        t_item,
-                        season_year=season.season_year,
-                        overall_pick=pick_num,
-                        pick_order=[],
-                        draft_type="SNAKE",
-                        league_size=len(team_lookup) if team_lookup else 12,
+                    acc_fallback_tid = _resolve_team_id(
+                        edit_data.get("accepting_espn_team_id") or raw.get("acceptingTeamId"),
+                        season.season_year,
+                        session,
+                        team_lookup,
+                        prefer_espn_id=True,
                     )
-                items_to_add.append(t_item)
+                    for sp_pick in edit_data["supplemental_picks"]:
+                        raw_to = (
+                            sp_pick.get("to_espn_team_id")
+                            or sp_pick.get("receiving_espn_team_id")
+                            or sp_pick.get("to_team_id")
+                        )
+                        prefer_to_espn = (
+                            sp_pick.get("to_espn_team_id") is not None
+                            or sp_pick.get("receiving_espn_team_id") is not None
+                        )
+                        to_tid = _resolve_team_id(
+                            raw_to,
+                            season.season_year,
+                            session,
+                            team_lookup,
+                            prefer_espn_id=prefer_to_espn,
+                        )
+                        raw_from = sp_pick.get("from_espn_team_id") or sp_pick.get("from_team_id")
+                        from_tid = _resolve_team_id(
+                            raw_from,
+                            season.season_year,
+                            session,
+                            team_lookup,
+                            prefer_espn_id=sp_pick.get("from_espn_team_id") is not None,
+                        )
+                        if not from_tid and to_tid and prop_fallback_tid and acc_fallback_tid:
+                            from_tid = acc_fallback_tid if to_tid == prop_fallback_tid else prop_fallback_tid
+                        if to_tid and from_tid:
+                            items_to_add.append(
+                                build_pick_trade_item(
+                                    session,
+                                    transaction_id=tx.id,
+                                    pick=sp_pick,
+                                    default_season=season.season_year,
+                                    from_team_id=from_tid,
+                                    to_team_id=to_tid,
+                                )
+                            )
 
-            session.add_all(items_to_add)
-            session.flush()
+                session.add_all(items_to_add)
+                session.flush()
 
         # If executed trade, upsert Trade record
         if tx_type == "TRADE" and status == "EXECUTED":
@@ -1634,12 +1872,13 @@ def upsert_transactions_from_payload(
             accepting_team_id = team_lookup[acc_espn].id if acc_espn in team_lookup else None
 
             if is_commish_edited and edit_data:
-                side_a_tid = _resolve_team_id(edit_data["sides"][0].get("team_id"), season.season_year, session, team_lookup)
-                side_b_tid = _resolve_team_id(edit_data["sides"][1].get("team_id"), season.season_year, session, team_lookup)
-                if side_a_tid and side_b_tid:
-                    proposing_team_id = side_a_tid
-                    accepting_team_id = side_b_tid
-                if edit_data.get("week"):
+                if len(edit_data.get("sides", [])) >= 2:
+                    side_a_tid = _resolve_side_team_id(edit_data["sides"][0], season.season_year, session, team_lookup)
+                    side_b_tid = _resolve_side_team_id(edit_data["sides"][1], season.season_year, session, team_lookup)
+                    if side_a_tid and side_b_tid:
+                        proposing_team_id = side_a_tid
+                        accepting_team_id = side_b_tid
+                if edit_data.get("week") is not None:
                     w = int(edit_data["week"])
 
             if not proposing_team_id or not accepting_team_id:
@@ -1661,8 +1900,6 @@ def upsert_transactions_from_payload(
                     accepting_team_id = t_list[1]
 
             if proposing_team_id and accepting_team_id:
-                # Deduplicate: check by espn_tx_id, related_id, or bilateral pair in this week
-                team_pair = {proposing_team_id, accepting_team_id}
                 trade = (
                     session.query(Trade)
                     .filter_by(
@@ -1680,19 +1917,6 @@ def upsert_transactions_from_payload(
                         )
                         .first()
                     )
-                if not trade:
-                    candidate_trades = (
-                        session.query(Trade)
-                        .filter(
-                            Trade.season_year == season.season_year,
-                            Trade.week == w,
-                        )
-                        .all()
-                    )
-                    for cand in candidate_trades:
-                        if {cand.proposing_team_id, cand.accepting_team_id} == team_pair:
-                            trade = cand
-                            break
 
                 faab_prop = int(raw.get("faabFromProposer", raw.get("faab_from_proposer", 0)))
                 faab_acc = int(raw.get("faabFromAccepter", raw.get("faab_from_accepter", 0)))
@@ -1710,6 +1934,13 @@ def upsert_transactions_from_payload(
                                     faab_acc += int(amount)
                         except (ValueError, TypeError):
                             pass
+                if is_commish_edited and edit_data and len(edit_data.get("sides", [])) >= 2:
+                    s_a = edit_data["sides"][0]
+                    s_b = edit_data["sides"][1]
+                    if s_a.get("faab_received") is not None or s_b.get("faab_received") is not None:
+                        faab_acc = int(s_a.get("faab_received") or 0)
+                        faab_prop = int(s_b.get("faab_received") or 0)
+
                 trade_summary = raw.get("tradeSummary", raw.get("trade_summary", {}))
 
                 if not trade:
@@ -1746,6 +1977,7 @@ def upsert_transactions_from_payload(
                             or "faabFromAccepter" in raw
                             or "faab_from_proposer" in raw
                             or "faab_from_accepter" in raw
+                            or (is_commish_edited and edit_data)
                         )
                         if has_faab_data:
                             trade.faab_from_proposer = faab_prop
@@ -1767,18 +1999,26 @@ def upsert_transactions_from_payload(
                         if isinstance(trade_summary, dict) and trade_summary:
                             trade.trade_summary = trade_summary
 
-                    session.flush()
-                    valid_trade_ids.add(trade.id)
+                session.flush()
+                valid_trade_ids.add(trade.id)
 
         processed_tx_ids.add(espn_tx_id)
         upserted_transactions.append(tx)
 
-    # Prune orphaned duplicate trades for this season that are no longer valid executed trades
-    if valid_trade_ids:
+    # Prune orphaned duplicate trades for this season when running a full-season trade sync
+    if valid_trade_ids and (topics or (weeks is None and scoring_periods is None)):
         season_trades = session.query(Trade).filter_by(season_year=season.season_year).all()
         for st in season_trades:
             if st.id not in valid_trade_ids:
-                if st.status == "DELETED" or (st.espn_transaction_id and st.espn_transaction_id in edited_trades):
+                is_manual_trade = bool(
+                    (st.espn_transaction_id and st.espn_transaction_id.startswith("manual-trade-"))
+                    or (isinstance(st.trade_summary, dict) and st.trade_summary.get("is_manual"))
+                )
+                if (
+                    st.status == "DELETED"
+                    or is_manual_trade
+                    or (st.espn_transaction_id and st.espn_transaction_id in edited_trades)
+                ):
                     continue
                 orph_txs = (
                     session.query(Transaction)

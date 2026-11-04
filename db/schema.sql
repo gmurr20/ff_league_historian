@@ -279,6 +279,33 @@ CREATE INDEX IF NOT EXISTS idx_trades_accepting_team ON trades(accepting_team_id
 COMMENT ON TABLE trades IS 'Bilateral trade agreements tracking assets and FAAB transferred.';
 
 -- -----------------------------------------------------------------------------
+-- 10b. Trade Overrides (Canonical Franchise-Slot Overrides & Supplemental Picks)
+-- Stores commissioner trade edits, deletions, manual trades, and off-platform
+-- draft picks keyed by canonical espn_team_id slots (1..12) to survive backfills.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS trade_overrides (
+    id SERIAL PRIMARY KEY,
+    season_year INT NOT NULL,
+    espn_transaction_id VARCHAR(128) NOT NULL,
+    is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    is_manual BOOLEAN NOT NULL DEFAULT FALSE,
+    week_override INT,
+    proposing_espn_team_id INT,
+    accepting_espn_team_id INT,
+    faab_from_proposer_override INT,
+    faab_from_accepter_override INT,
+    override_sides JSONB NOT NULL DEFAULT '[]'::jsonb,
+    supplemental_picks JSONB NOT NULL DEFAULT '[]'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_trade_overrides_season_tx UNIQUE (season_year, espn_transaction_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_trade_overrides_season_year ON trade_overrides(season_year);
+CREATE INDEX IF NOT EXISTS idx_trade_overrides_espn_tx ON trade_overrides(espn_transaction_id);
+
+COMMENT ON TABLE trade_overrides IS 'Persistent commissioner trade overrides and supplemental draft picks keyed by canonical espn_team_id.';
+
+-- -----------------------------------------------------------------------------
 -- 11. Financial Earnings Ledger
 -- Reconciled payouts for regular season weekly wins ($10), ties ($5), and podiums.
 -- PostgreSQL 15+ UNIQUE NULLS NOT DISTINCT ensures at most one podium payout per entry type.

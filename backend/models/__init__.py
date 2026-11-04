@@ -19,7 +19,7 @@ from backend.models.raw_snapshot import RawEspnSnapshot
 from backend.models.season import Season
 from backend.models.sync_run import SyncRun
 from backend.models.team import Team
-from backend.models.trade import Trade
+from backend.models.trade import Trade, TradeOverride
 from backend.models.transaction import Transaction, TransactionItem
 
 __all__ = [
@@ -37,6 +37,7 @@ __all__ = [
     "Transaction",
     "TransactionItem",
     "Trade",
+    "TradeOverride",
     "EarningsLedger",
     "SyncRun",
     "MediaAsset",

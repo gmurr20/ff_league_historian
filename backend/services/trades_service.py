@@ -1167,9 +1167,9 @@ def _evaluate_trade(
 
 def _reconcile_missing_trades(session: Session) -> None:
     """Ensure any executed trade Transaction in the database has a corresponding Trade entity."""
-    from backend.jobs.parsers import load_trade_overrides
+    from backend.jobs.parsers import get_combined_trade_overrides
 
-    trade_overrides = load_trade_overrides()
+    trade_overrides = get_combined_trade_overrides(session)
     deleted_ids = set(trade_overrides.get("deleted_trades", []))
 
     executed_txs = (
@@ -1185,6 +1185,11 @@ def _reconcile_missing_trades(session: Session) -> None:
 
     existing_trades = session.query(Trade).all()
     existing_espn_ids = {t.espn_transaction_id for t in existing_trades}
+    superseded_ids = {
+        str(tx.related_espn_transaction_id)
+        for tx in executed_txs
+        if tx.related_espn_transaction_id and tx.espn_transaction_id in existing_espn_ids
+    }
 
     for tx in executed_txs:
         if tx.espn_transaction_id in deleted_ids or (
@@ -1193,8 +1198,10 @@ def _reconcile_missing_trades(session: Session) -> None:
             tx.status = "CANCELED"
             continue
 
-        if tx.espn_transaction_id in existing_espn_ids or (
-            tx.related_espn_transaction_id and tx.related_espn_transaction_id in existing_espn_ids
+        if (
+            tx.espn_transaction_id in existing_espn_ids
+            or tx.espn_transaction_id in superseded_ids
+            or (tx.related_espn_transaction_id and tx.related_espn_transaction_id in existing_espn_ids)
         ):
             continue
 
@@ -1210,7 +1217,7 @@ def _reconcile_missing_trades(session: Session) -> None:
 
             trade = Trade(
                 season_year=tx.season_year,
-                week=tx.week or 1,
+                week=tx.week if tx.week is not None else 1,
                 espn_transaction_id=tx.espn_transaction_id,
                 proposing_team_id=prop_id,
                 accepting_team_id=acc_id,
@@ -1387,7 +1394,7 @@ def get_trades_trends(
             player_lineups[(wl.season_year, wl.player_id)].append(wl)
             player_week_lineup[(wl.season_year, wl.player_id, wl.week)] = wl
 
-    # Deduplicate trades (prioritize trades with associated items)
+    # Deduplicate trades only when they share the exact same traded player assets
     trades_sorted = sorted(
         trades_raw,
         key=lambda t: (
@@ -1397,13 +1404,20 @@ def get_trades_trends(
         ),
         reverse=True,
     )
-    seen_trade_pairs: set[tuple[int, int, frozenset[int]]] = set()
+    seen_trade_signatures: set[tuple[int, frozenset[int], frozenset[int]]] = set()
     trades: list[Trade] = []
     for t in trades_sorted:
-        t_pair = (t.season_year, t.week or 0, frozenset([t.proposing_team_id, t.accepting_team_id]))
-        if t_pair in seen_trade_pairs:
+        t_tx = tx_by_espn_id.get(t.espn_transaction_id)
+        t_items = items_by_tx_id.get(t_tx.id, []) if t_tx else []
+        t_pids = frozenset(it.player_id for it in t_items if it.player_id)
+        if t_pids:
+            sig = (t.season_year, frozenset([t.proposing_team_id, t.accepting_team_id]), t_pids)
+            if sig in seen_trade_signatures:
+                continue
+            seen_trade_signatures.add(sig)
+        elif (t.faab_from_proposer or 0) == 0 and (t.faab_from_accepter or 0) == 0:
+            # Skip empty ghost records with 0 items and 0 FAAB
             continue
-        seen_trade_pairs.add(t_pair)
         trades.append(t)
     trades.sort(key=lambda t: (t.executed_at or datetime.min, t.id), reverse=True)
 

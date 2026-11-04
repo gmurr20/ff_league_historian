@@ -138,6 +138,8 @@ def diagnose() -> tuple[Any, int]:
         return (
             jsonify(
                 {
+                    "has_espn_s2": bool(os.getenv("ESPN_S2")),
+                    "has_espn_swid": bool(os.getenv("ESPN_SWID")),
                     "trade_records": [
                         {"id": t.id, "espn_id": t.espn_transaction_id, "week": t.week, "status": t.status}
                         for t in trades

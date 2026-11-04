@@ -22,7 +22,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from backend.jobs.parsers import load_trade_overrides
+from backend.jobs.parsers import get_combined_trade_overrides
 from backend.models.draft import DraftPick, DraftSettings, TradedDraftPick
 from backend.models.manager import Manager
 from backend.models.player import Player
@@ -181,8 +181,10 @@ def _build_future_draft_data(
             pick_lookup_by_round_orig_tid[(round_num, orig_team.id)] = pick_data
 
     # 3. Query and Apply Traded Draft Picks for this future season
-    trade_overrides = load_trade_overrides()
+    trade_overrides = get_combined_trade_overrides(session)
     deleted_trade_ids = set(trade_overrides.get("deleted_trades", []))
+    edited_trades = trade_overrides.get("edited_trades", {})
+    espn_team_lookup = {t.espn_team_id: t for t in teams}
 
     traded_picks_records = (
         session.query(TradedDraftPick, TransactionItem, Transaction)
@@ -315,6 +317,52 @@ def _build_future_draft_data(
                 "executed_at": tx.executed_at.isoformat() if tx.executed_at else None,
                 "espn_transaction_id": tx.espn_transaction_id,
             })
+
+    # Also apply any supplemental_picks from TradeOverride / edited_trades not yet in traded_picks_log
+    logged_tx_rounds = {(entry["espn_transaction_id"], int(entry["round"])) for entry in traded_picks_log}
+    for e_tx_id, e_val in edited_trades.items():
+        if e_tx_id in deleted_trade_ids or not isinstance(e_val, dict):
+            continue
+        for sp_pick in e_val.get("supplemental_picks") or []:
+            p_year = int(sp_pick.get("season_year") or future_season_year)
+            if p_year != future_season_year:
+                continue
+            r_num = int(sp_pick.get("round") or 1)
+            if (e_tx_id, r_num) in logged_tx_rounds:
+                continue
+            to_espn = sp_pick.get("to_espn_team_id")
+            from_espn = sp_pick.get("from_espn_team_id")
+            orig_espn = sp_pick.get("original_espn_team_id") or from_espn
+            to_team = espn_team_lookup.get(int(to_espn)) if to_espn is not None else None
+            from_team = espn_team_lookup.get(int(from_espn)) if from_espn is not None else None
+            if not to_team or not from_team:
+                continue
+            target_pick = pick_lookup_by_round_orig_espn.get((r_num, int(orig_espn))) if orig_espn else None
+            if target_pick:
+                target_pick["current_team"] = _team_dict(to_team)
+                target_pick["is_traded"] = True
+                w_val = e_val.get("week")
+                trade_info = {
+                    "transaction_id": 0,
+                    "espn_transaction_id": e_tx_id,
+                    "week": w_val,
+                    "executed_at": None,
+                    "from_team": _team_dict(from_team),
+                    "to_team": _team_dict(to_team),
+                }
+                target_pick["trade_details"] = trade_info
+                target_pick["movement_history"].append(_team_dict(to_team))
+                traded_picks_log.append({
+                    "round": r_num,
+                    "projected_overall_pick": target_pick["projected_overall_pick"],
+                    "original_team": target_pick["original_team"],
+                    "from_team": _team_dict(from_team),
+                    "to_team": _team_dict(to_team),
+                    "week": w_val,
+                    "executed_at": None,
+                    "espn_transaction_id": e_tx_id,
+                })
+                logged_tx_rounds.add((e_tx_id, r_num))
 
     # 4. Populate Team Inventories & Pick Counts
     teams_summary_map = {t["team_id"]: t for t in ordered_teams_summary}

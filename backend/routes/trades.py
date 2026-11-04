@@ -12,12 +12,15 @@ from sqlalchemy import or_
 
 from backend.database import SessionLocal
 from backend.jobs.draft_assets import build_pick_trade_item
-from backend.jobs.parsers import load_trade_overrides, save_trade_overrides
+from backend.jobs.parsers import (
+    load_trade_overrides,
+    save_trade_overrides,
+)
 from backend.models.manager import Manager
 from backend.models.player import Player
 from backend.models.season import Season
 from backend.models.team import Team
-from backend.models.trade import Trade
+from backend.models.trade import Trade, TradeOverride
 from backend.models.transaction import Transaction, TransactionItem
 from backend.services.trades_service import get_deleted_trades, get_trades_trends
 
@@ -294,14 +297,64 @@ def update_trade(trade_id: int) -> tuple[Any, int]:
 
             session.add_all(items_to_add)
 
+        team_a_obj = session.get(Team, side_a_team_id)
+        team_b_obj = session.get(Team, side_b_team_id)
+        espn_a = team_a_obj.espn_team_id if team_a_obj else None
+        espn_b = team_b_obj.espn_team_id if team_b_obj else None
+
+        canonical_sides = [
+            {**side_a, **({"espn_team_id": espn_a} if espn_a is not None else {})},
+            {**side_b, **({"espn_team_id": espn_b} if espn_b is not None else {})},
+        ]
+        supp_picks: list[dict[str, Any]] = []
+        if espn_a is not None and espn_b is not None:
+            for p_obj in side_a.get("draft_picks", []):
+                supp_picks.append({
+                    **p_obj,
+                    "to_espn_team_id": espn_a,
+                    "from_espn_team_id": espn_b,
+                    "original_espn_team_id": p_obj.get("original_espn_team_id") or espn_b,
+                })
+            for p_obj in side_b.get("draft_picks", []):
+                supp_picks.append({
+                    **p_obj,
+                    "to_espn_team_id": espn_b,
+                    "from_espn_team_id": espn_a,
+                    "original_espn_team_id": p_obj.get("original_espn_team_id") or espn_a,
+                })
+
+        ovr_row = (
+            session.query(TradeOverride)
+            .filter_by(season_year=trade.season_year, espn_transaction_id=trade.espn_transaction_id)
+            .first()
+        )
+        if not ovr_row:
+            ovr_row = TradeOverride(
+                season_year=trade.season_year,
+                espn_transaction_id=trade.espn_transaction_id,
+            )
+            session.add(ovr_row)
+        ovr_row.week_override = trade.week
+        ovr_row.proposing_espn_team_id = espn_a
+        ovr_row.accepting_espn_team_id = espn_b
+        ovr_row.faab_from_proposer_override = trade.faab_from_proposer
+        ovr_row.faab_from_accepter_override = trade.faab_from_accepter
+        ovr_row.override_sides = canonical_sides
+        ovr_row.supplemental_picks = supp_picks
+        ovr_row.updated_at = datetime.now(UTC)
+
         # Update db/trade_overrides.json
         overrides = load_trade_overrides()
         edited_trades = overrides.setdefault("edited_trades", {})
         edited_trades[trade.espn_transaction_id] = {
+            "season_year": trade.season_year,
             "week": trade.week,
-            "sides": sides,
+            "sides": canonical_sides,
+            "supplemental_picks": supp_picks,
             "proposing_team_id": side_a_team_id,
             "accepting_team_id": side_b_team_id,
+            "proposing_espn_team_id": espn_a,
+            "accepting_espn_team_id": espn_b,
         }
         save_trade_overrides(overrides)
 
@@ -428,15 +481,42 @@ def create_trade() -> tuple[Any, int]:
 
         session.add_all(items_to_add)
 
+        team_a_obj = session.get(Team, side_a_team_id)
+        team_b_obj = session.get(Team, side_b_team_id)
+        espn_a = team_a_obj.espn_team_id if team_a_obj else None
+        espn_b = team_b_obj.espn_team_id if team_b_obj else None
+        canonical_sides = [
+            {**side_a, **({"espn_team_id": espn_a} if espn_a is not None else {})},
+            {**side_b, **({"espn_team_id": espn_b} if espn_b is not None else {})},
+        ]
+
+        session.add(
+            TradeOverride(
+                season_year=season_year,
+                espn_transaction_id=espn_tx_id,
+                is_manual=True,
+                week_override=week,
+                proposing_espn_team_id=espn_a,
+                accepting_espn_team_id=espn_b,
+                faab_from_proposer_override=faab_b,
+                faab_from_accepter_override=faab_a,
+                override_sides=canonical_sides,
+                supplemental_picks=[],
+            )
+        )
+
         # Save to overrides
         overrides = load_trade_overrides()
         edited_trades = overrides.setdefault("edited_trades", {})
         edited_trades[espn_tx_id] = {
             "season_year": season_year,
             "week": week,
-            "sides": sides,
+            "is_manual": True,
+            "sides": canonical_sides,
             "proposing_team_id": side_a_team_id,
             "accepting_team_id": side_b_team_id,
+            "proposing_espn_team_id": espn_a,
+            "accepting_espn_team_id": espn_b,
         }
         save_trade_overrides(overrides)
 
@@ -474,6 +554,21 @@ def delete_trade(trade_id: int) -> tuple[Any, int]:
         )
         for tx in txs:
             tx.status = "CANCELED"
+
+        ovr_row = (
+            session.query(TradeOverride)
+            .filter_by(season_year=trade.season_year, espn_transaction_id=trade.espn_transaction_id)
+            .first()
+        )
+        if not ovr_row:
+            ovr_row = TradeOverride(
+                season_year=trade.season_year,
+                espn_transaction_id=trade.espn_transaction_id,
+                is_deleted=True,
+            )
+            session.add(ovr_row)
+        else:
+            ovr_row.is_deleted = True
 
         # Update overrides
         overrides = load_trade_overrides()
@@ -516,6 +611,14 @@ def restore_trade(trade_id: int) -> tuple[Any, int]:
         )
         for tx in txs:
             tx.status = "EXECUTED"
+
+        ovr_row = (
+            session.query(TradeOverride)
+            .filter_by(season_year=trade.season_year, espn_transaction_id=trade.espn_transaction_id)
+            .first()
+        )
+        if ovr_row:
+            ovr_row.is_deleted = False
 
         # Update overrides
         overrides = load_trade_overrides()

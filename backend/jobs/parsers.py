@@ -23,6 +23,7 @@ from backend.models.manager import Manager
 from backend.models.matchup import Matchup
 from backend.models.season import Season
 from backend.models.team import Team
+from backend.models.trade import TradeOverride
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,133 @@ def save_trade_overrides(data: dict[str, Any], overrides_path: str | Path | None
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+
+
+def sync_trade_overrides_to_db(
+    session: Session,
+    overrides_path: str | Path | None = None,
+) -> None:
+    """Synchronize canonical overrides from db/trade_overrides.json into the TradeOverride table."""
+    file_data = load_trade_overrides(overrides_path)
+    deleted_ids = set(str(x) for x in file_data.get("deleted_trades", []) if x)
+    edited_map: dict[str, Any] = file_data.get("edited_trades", {}) or {}
+
+    for del_id in deleted_ids:
+        existing = (
+            session.query(TradeOverride)
+            .filter_by(espn_transaction_id=del_id)
+            .first()
+        )
+        if not existing:
+            session.add(
+                TradeOverride(
+                    season_year=2026,
+                    espn_transaction_id=del_id,
+                    is_deleted=True,
+                )
+            )
+        else:
+            existing.is_deleted = True
+
+    for tx_id, e_val in edited_map.items():
+        if not isinstance(e_val, dict):
+            continue
+        s_year = int(e_val.get("season_year") or 2026)
+        existing = (
+            session.query(TradeOverride)
+            .filter_by(season_year=s_year, espn_transaction_id=str(tx_id))
+            .first()
+        )
+        sides = e_val.get("sides") or []
+        supp_picks = e_val.get("supplemental_picks") or []
+        prop_espn = e_val.get("proposing_espn_team_id")
+        acc_espn = e_val.get("accepting_espn_team_id")
+        if prop_espn is None and len(sides) >= 1 and sides[0].get("espn_team_id") is not None:
+            prop_espn = int(sides[0]["espn_team_id"])
+        if acc_espn is None and len(sides) >= 2 and sides[1].get("espn_team_id") is not None:
+            acc_espn = int(sides[1]["espn_team_id"])
+
+        week_ovr = int(e_val["week"]) if e_val.get("week") is not None else None
+        is_manual = bool(e_val.get("is_manual") or str(tx_id).startswith("manual-trade-"))
+
+        if not existing:
+            existing = TradeOverride(
+                season_year=s_year,
+                espn_transaction_id=str(tx_id),
+                is_deleted=str(tx_id) in deleted_ids,
+                is_manual=is_manual,
+                week_override=week_ovr,
+                proposing_espn_team_id=int(prop_espn) if prop_espn is not None else None,
+                accepting_espn_team_id=int(acc_espn) if acc_espn is not None else None,
+                override_sides=sides,
+                supplemental_picks=supp_picks,
+            )
+            session.add(existing)
+        else:
+            if week_ovr is not None and existing.week_override is None:
+                existing.week_override = week_ovr
+            if prop_espn is not None:
+                existing.proposing_espn_team_id = int(prop_espn)
+            if acc_espn is not None:
+                existing.accepting_espn_team_id = int(acc_espn)
+            if supp_picks:
+                existing.supplemental_picks = supp_picks
+            if sides:
+                if not existing.override_sides or any(s.get("espn_team_id") is None for s in existing.override_sides):
+                    existing.override_sides = sides
+            elif existing.override_sides:
+                existing.override_sides = []
+    session.flush()
+
+
+def get_combined_trade_overrides(
+    session: Session | None = None,
+    overrides_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Return unified trade overrides combining db/trade_overrides.json and TradeOverride DB rows."""
+    base = load_trade_overrides(overrides_path)
+    deleted_set: set[str] = {str(x) for x in base.get("deleted_trades", []) if x}
+    edited_map: dict[str, dict[str, Any]] = {}
+    for k, v in (base.get("edited_trades") or {}).items():
+        if isinstance(v, dict):
+            edited_map[str(k)] = dict(v)
+
+    if session is not None:
+        try:
+            db_rows = session.query(TradeOverride).all()
+            for row in db_rows:
+                tx_id = str(row.espn_transaction_id)
+                if row.is_deleted:
+                    deleted_set.add(tx_id)
+                elif tx_id in deleted_set:
+                    deleted_set.discard(tx_id)
+
+                if row.override_sides or row.supplemental_picks or row.week_override is not None or row.is_manual:
+                    entry = dict(edited_map.get(tx_id, {}))
+                    entry["season_year"] = row.season_year
+                    if row.week_override is not None:
+                        entry["week"] = row.week_override
+                    if row.proposing_espn_team_id is not None:
+                        entry["proposing_espn_team_id"] = row.proposing_espn_team_id
+                    if row.accepting_espn_team_id is not None:
+                        entry["accepting_espn_team_id"] = row.accepting_espn_team_id
+                    if row.faab_from_proposer_override is not None:
+                        entry["faab_from_proposer"] = row.faab_from_proposer_override
+                    if row.faab_from_accepter_override is not None:
+                        entry["faab_from_accepter"] = row.faab_from_accepter_override
+                    if row.override_sides:
+                        entry["sides"] = row.override_sides
+                    if row.supplemental_picks:
+                        entry["supplemental_picks"] = row.supplemental_picks
+                    entry["is_manual"] = row.is_manual
+                    edited_map[tx_id] = entry
+        except Exception:
+            pass
+
+    return {
+        "deleted_trades": sorted(deleted_set),
+        "edited_trades": edited_map,
+    }
 
 
 def load_manager_overrides(

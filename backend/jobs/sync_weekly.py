@@ -170,14 +170,33 @@ def sync_weekly(
             session.flush()
             return fail_run
 
-    # Save / update snapshot
+    # Save / update snapshot while preserving earlier weeks' transactions and topics
     snap_record = (
         session.query(RawEspnSnapshot)
         .filter_by(season_year=active_season.season_year, view_name="mCombined", scoring_period=0)
         .first()
     )
     if snap_record:
+        if isinstance(snap_record.payload, dict):
+            payload = dict(payload)
+            for list_key in ("transactions", "topics"):
+                prev_items = snap_record.payload.get(list_key)
+                if isinstance(prev_items, list) and prev_items:
+                    curr_items = list(payload.get(list_key) or [])
+                    seen_ids = {
+                        str(it.get("id") or it.get("targetId"))
+                        for it in curr_items
+                        if isinstance(it, dict) and (it.get("id") or it.get("targetId"))
+                    }
+                    for pit in prev_items:
+                        if isinstance(pit, dict):
+                            pid_str = str(pit.get("id") or pit.get("targetId") or "")
+                            if pid_str and pid_str not in seen_ids:
+                                curr_items.append(pit)
+                                seen_ids.add(pid_str)
+                    payload[list_key] = curr_items
         snap_record.payload = payload
+        flag_modified(snap_record, "payload")
     else:
         session.add(
             RawEspnSnapshot(
@@ -266,13 +285,30 @@ def sync_weekly(
         session, season, payload, team_map, weeks=weeks_to_sync
     )
 
-    # Deep fetch per-week boxscores in rolling window to guarantee complete starter & bench roster snapshots
+    # Deep fetch per-week boxscores and transactions in rolling window to guarantee complete starter, bench & trade snapshots
     if hasattr(espn_client, "http_session"):
+        tx_filter = {
+            "transactions": {
+                "filterType": {
+                    "value": [
+                        "FREEAGENT",
+                        "WAIVER",
+                        "WAIVER_ERROR",
+                        "TRADE_PROPOSAL",
+                        "TRADE_ACCEPT",
+                        "TRADE_UPHOLD",
+                        "TRADE_VETO",
+                        "ROSTER",
+                    ]
+                }
+            }
+        }
         for w in weeks_to_sync:
             try:
                 sp_payload = espn_client.fetch_league(
                     season_year=active_season.season_year,
-                    views=["mBoxscore", "mRoster", "mTeam"],
+                    views=["mBoxscore", "mTransactions2", "mRoster", "mTeam"],
+                    x_fantasy_filter=tx_filter,
                     allow_inaccessible=True,
                     league_id=league_id or active_season.league_id,
                     scoring_period_id=w,
@@ -290,6 +326,7 @@ def sync_weekly(
                     )
                     if sp_snap:
                         sp_snap.payload = sp_payload
+                        flag_modified(sp_snap, "payload")
                     else:
                         session.add(
                             RawEspnSnapshot(
@@ -299,6 +336,15 @@ def sync_weekly(
                                 payload=sp_payload,
                             )
                         )
+                    if sp_payload.get("transactions"):
+                        payload = dict(payload)
+                        curr_txs = list(payload.get("transactions") or [])
+                        seen_tx_ids = {str(t.get("id")) for t in curr_txs if isinstance(t, dict) and t.get("id")}
+                        for stx in sp_payload["transactions"]:
+                            if isinstance(stx, dict) and str(stx.get("id")) not in seen_tx_ids:
+                                curr_txs.append(stx)
+                                seen_tx_ids.add(str(stx.get("id")))
+                        payload["transactions"] = curr_txs
                     upsert_players_from_payload(session, sp_payload)
                     upsert_weekly_lineups_from_payload(
                         session, season, sp_payload, team_map, weeks=[w]

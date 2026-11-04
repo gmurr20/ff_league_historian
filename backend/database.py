@@ -140,29 +140,41 @@ def init_db(target_engine: Engine | None = None) -> None:
                 "WHERE entry_type IN ('WEEKLY_WIN', 'WEEKLY_TIE')"
             )
         )
-        # Cancel any transactions and trades registered in deleted_trades overrides
+        # Heal previously mis-deleted 2026 trade 51056f5f-1511-40d1-a057-69a610de6092
+        # and synchronize canonical trade overrides into the database.
         try:
-            from backend.jobs.parsers import load_trade_overrides
-
-            overrides = load_trade_overrides()
-            deleted_ids = overrides.get("deleted_trades", [])
-            for del_id in deleted_ids:
-                conn.execute(
-                    text(
-                        "UPDATE transactions SET status = 'CANCELED' "
-                        "WHERE espn_transaction_id = :del_id "
-                        "OR related_espn_transaction_id = :del_id"
-                    ),
-                    {"del_id": str(del_id)},
+            conn.execute(
+                text(
+                    "UPDATE transactions SET status = 'EXECUTED' "
+                    "WHERE espn_transaction_id = '51056f5f-1511-40d1-a057-69a610de6092' "
+                    "AND status = 'CANCELED'"
                 )
-                conn.execute(
-                    text(
-                        "UPDATE trades SET status = 'DELETED' "
-                        "WHERE espn_transaction_id = :del_id"
-                    ),
-                    {"del_id": str(del_id)},
+            )
+            conn.execute(
+                text(
+                    "UPDATE trades SET status = 'EXECUTED' "
+                    "WHERE espn_transaction_id = '51056f5f-1511-40d1-a057-69a610de6092' "
+                    "AND status = 'DELETED'"
                 )
+            )
+            conn.execute(
+                text(
+                    "DELETE FROM trade_overrides "
+                    "WHERE espn_transaction_id = 'ee64229b-8b7c-4e92-9abf-c5e52bade74e' "
+                    "AND is_deleted = TRUE"
+                )
+            )
         except Exception:
             pass
         conn.commit()
+
+    # Seed canonical trade overrides from db/trade_overrides.json into TradeOverride table
+    try:
+        from backend.jobs.parsers import sync_trade_overrides_to_db
+
+        factory = sessionmaker(autocommit=False, autoflush=False, bind=active_engine)
+        with get_session(factory) as session:
+            sync_trade_overrides_to_db(session)
+    except Exception:
+        pass
 
