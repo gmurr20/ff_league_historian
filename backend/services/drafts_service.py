@@ -428,6 +428,91 @@ def _build_historical_draft_data(session: Session, season_year: int) -> dict[str
     players_all = session.query(Player).all()
     player_map = {p.espn_player_id: p for p in players_all}
 
+    # Self-heal season-specific pro_team and any unresolved "Player <id>" entries on historical drafts
+    season_pro_teams: dict[int, str] = {}
+    draft_day_team_names: dict[int, str] = {}
+    try:
+        from backend.jobs.deep_parsers import normalize_pro_team, upsert_players_from_payload
+        from backend.models.raw_snapshot import RawEspnSnapshot
+
+        snaps = (
+            session.query(RawEspnSnapshot)
+            .filter_by(season_year=season_year)
+            .order_by(RawEspnSnapshot.scoring_period.asc())
+            .all()
+        )
+        for sn in snaps:
+            if not isinstance(sn.payload, dict):
+                continue
+            if sn.view_name == "mBoxscore" and sn.scoring_period in (0, 1):
+                for tm_raw in sn.payload.get("teams", []):
+                    t_espn_id = tm_raw.get("id")
+                    t_name = tm_raw.get("name") or (
+                        f"{tm_raw.get('location', '')} {tm_raw.get('nickname', '')}".strip()
+                    )
+                    if t_espn_id and t_name and int(t_espn_id) not in draft_day_team_names:
+                        draft_day_team_names[int(t_espn_id)] = t_name
+            for p_raw in sn.payload.get("players", []):
+                p_obj = p_raw.get("playerPoolEntry", {}).get("player") or p_raw.get("player") or p_raw
+                if isinstance(p_obj, dict) and p_obj.get("id"):
+                    pt = normalize_pro_team(p_obj.get("proTeamId") if p_obj.get("proTeamId") is not None else p_obj.get("proTeam"))
+                    if pt and pt != "FA":
+                        season_pro_teams[int(p_obj["id"])] = pt
+            for tm_raw in sn.payload.get("teams", []):
+                for entry in tm_raw.get("roster", {}).get("entries", []):
+                    p_obj = entry.get("playerPoolEntry", {}).get("player") or entry.get("player") or {}
+                    if isinstance(p_obj, dict) and p_obj.get("id"):
+                        pt = normalize_pro_team(p_obj.get("proTeamId") if p_obj.get("proTeamId") is not None else p_obj.get("proTeam"))
+                        if pt and pt != "FA" and int(p_obj["id"]) not in season_pro_teams:
+                            season_pro_teams[int(p_obj["id"])] = pt
+
+        pids_needing_fetch = [
+            dp.player_id
+            for dp in picks_raw
+            if dp.player_id > 0
+            and dp.player_id < 9000000
+            and (
+                not dp.player_pro_team
+                or dp.player_id not in player_map
+                or player_map[dp.player_id].full_name.startswith("Player ")
+                or player_map[dp.player_id].default_position in ("UNKNOWN", "FLEX")
+            )
+            and (
+                dp.player_id not in season_pro_teams
+                or dp.player_id not in player_map
+                or player_map[dp.player_id].full_name.startswith("Player ")
+                or player_map[dp.player_id].default_position in ("UNKNOWN", "FLEX")
+            )
+        ]
+        if pids_needing_fetch:
+            from backend.jobs.espn_client import EspnClient
+
+            fetched = EspnClient().fetch_player_info(
+                season_year=season_year,
+                player_ids=sorted(set(pids_needing_fetch)),
+            )
+            if fetched:
+                for fp in fetched:
+                    p_obj = fp.get("playerPoolEntry", {}).get("player") or fp.get("player") or fp
+                    if isinstance(p_obj, dict) and p_obj.get("id"):
+                        pt = normalize_pro_team(p_obj.get("proTeamId") if p_obj.get("proTeamId") is not None else p_obj.get("proTeam"))
+                        if pt:
+                            season_pro_teams[int(p_obj["id"])] = pt
+                upsert_players_from_payload(session, {"players": fetched})
+                for p in session.query(Player).filter(Player.espn_player_id.in_(pids_needing_fetch)).all():
+                    player_map[p.espn_player_id] = p
+
+        dirty = False
+        for dp in picks_raw:
+            resolved_pt = season_pro_teams.get(dp.player_id)
+            if resolved_pt and dp.player_pro_team != resolved_pt:
+                dp.player_pro_team = resolved_pt
+                dirty = True
+        if dirty or pids_needing_fetch:
+            session.commit()
+    except Exception:
+        pass
+
     # Traded pick mapping: check if any picks were acquired via trade prior to the draft
     # 1. TradedDraftPick table
     traded_picks = (
@@ -483,11 +568,17 @@ def _build_historical_draft_data(session: Session, season_year: int) -> dict[str
             orig_team_dict = {
                 "team_id": ot.id,
                 "espn_team_id": ot.espn_team_id,
-                "team_name": ot.team_name,
+                "team_name": draft_day_team_names.get(ot.espn_team_id, ot.team_name),
                 "manager_id": ot.manager_id,
                 "manager_name": mgr_map.get(ot.manager_id, ""),
                 "logo_url": ot.logo_url,
             }
+
+        resolved_pro_team = (
+            dp.player_pro_team
+            or season_pro_teams.get(dp.player_id)
+            or (player.pro_team if player else "FA")
+        )
 
         pick_obj = {
             "overall_pick": dp.overall_pick,
@@ -500,7 +591,11 @@ def _build_historical_draft_data(session: Session, season_year: int) -> dict[str
             "drafting_team": {
                 "team_id": team.id if team else dp.team_id,
                 "espn_team_id": team.espn_team_id if team else 0,
-                "team_name": team.team_name if team else f"Team {dp.team_id}",
+                "team_name": (
+                    draft_day_team_names.get(team.espn_team_id, team.team_name)
+                    if team
+                    else f"Team {dp.team_id}"
+                ),
                 "manager_id": team.manager_id if team else 0,
                 "manager_name": mgr_map.get(team.manager_id, "") if team else "",
                 "logo_url": team.logo_url if team else None,
@@ -509,7 +604,7 @@ def _build_historical_draft_data(session: Session, season_year: int) -> dict[str
                 "player_id": player.espn_player_id if player else dp.player_id,
                 "full_name": player.full_name if player else f"Player {dp.player_id}",
                 "default_position": player.default_position if player else "FLEX",
-                "pro_team": player.pro_team if player else "FA",
+                "pro_team": resolved_pro_team,
                 "headshot_url": player.headshot_url if player else None,
             },
         }
@@ -530,7 +625,7 @@ def _build_historical_draft_data(session: Session, season_year: int) -> dict[str
         {
             "team_id": t.id,
             "espn_team_id": t.espn_team_id,
-            "team_name": t.team_name,
+            "team_name": draft_day_team_names.get(t.espn_team_id, t.team_name),
             "manager_id": t.manager_id,
             "manager_name": mgr_map.get(t.manager_id, ""),
             "logo_url": t.logo_url,

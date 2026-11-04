@@ -372,6 +372,7 @@ CREATE TABLE IF NOT EXISTS draft_picks (
     is_keeper BOOLEAN NOT NULL DEFAULT FALSE,
     lineup_slot_id INT,
     auto_draft_type_id INT NOT NULL DEFAULT 0,
+    player_pro_team VARCHAR(16),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_draft_picks_season_overall UNIQUE (season_year, overall_pick)
 );

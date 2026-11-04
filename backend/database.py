@@ -140,6 +140,21 @@ def init_db(target_engine: Engine | None = None) -> None:
                 "WHERE entry_type IN ('WEEKLY_WIN', 'WEEKLY_TIE')"
             )
         )
+        # Ensure draft_picks.player_pro_team column exists on upgraded databases
+        try:
+            if active_engine.dialect.name == "postgresql":
+                conn.execute(
+                    text("ALTER TABLE draft_picks ADD COLUMN IF NOT EXISTS player_pro_team VARCHAR(16)")
+                )
+            else:
+                cols = [
+                    row[1]
+                    for row in conn.execute(text("PRAGMA table_info(draft_picks)")).fetchall()
+                ]
+                if cols and "player_pro_team" not in cols:
+                    conn.execute(text("ALTER TABLE draft_picks ADD COLUMN player_pro_team VARCHAR(16)"))
+        except Exception:
+            pass
         # Heal previously mis-deleted 2026 trade 51056f5f-1511-40d1-a057-69a610de6092
         # and synchronize canonical trade overrides into the database.
         try:

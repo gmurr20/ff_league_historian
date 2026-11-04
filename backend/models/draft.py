@@ -117,6 +117,7 @@ class DraftPick(Base):
     is_keeper: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     lineup_slot_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     auto_draft_type_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    player_pro_team: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     # Relationships
     season: Mapped[Season] = relationship("Season", foreign_keys=[season_year])

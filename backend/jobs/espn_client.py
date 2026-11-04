@@ -243,14 +243,16 @@ class EspnClient:
         player_ids: list[int],
         league_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Fetch canonical player details (name, position, pro team, headshot) by player IDs."""
+        """Fetch canonical player details (name, position, pro team, headshot) by player IDs for a given season_year."""
         if not player_ids:
             return []
         target_league_id = league_id or self.league_id
-        url = self.MODERN_URL_TEMPLATE.format(year=season_year, league_id=target_league_id)
         p_filter = {"players": {"filterIds": {"value": player_ids}}}
         headers = self._build_headers(x_fantasy_filter=p_filter)
         cookies = self._build_cookies()
+
+        # 1. Try modern league endpoint with kona_player_info
+        url = self.MODERN_URL_TEMPLATE.format(year=season_year, league_id=target_league_id)
         try:
             resp = self.http_session.get(
                 url,
@@ -260,7 +262,46 @@ class EspnClient:
                 timeout=30,
             )
             if resp.ok:
-                return resp.json().get("players", [])
+                data = resp.json()
+                if isinstance(data, dict) and data.get("players"):
+                    return data["players"]
         except Exception as exc:
-            logger.warning("Failed to fetch kona_player_info: %s", exc)
+            logger.debug("Modern kona_player_info failed for %d: %s", season_year, exc)
+
+        # 2. Try ESPN seasonal players_wl endpoint (works for archived seasons without league auth)
+        wl_url = f"https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{season_year}/players"
+        wl_headers = self._build_headers(x_fantasy_filter={"filterIds": {"value": player_ids}})
+        try:
+            resp_wl = self.http_session.get(
+                wl_url,
+                params=[("view", "players_wl")],
+                headers=wl_headers,
+                cookies=cookies,
+                timeout=30,
+            )
+            if resp_wl.ok:
+                wl_data = resp_wl.json()
+                if isinstance(wl_data, list) and wl_data:
+                    return wl_data
+        except Exception as exc:
+            logger.debug("Seasonal players_wl failed for %d: %s", season_year, exc)
+
+        # 3. Fallback to legacy leagueHistory endpoint
+        legacy_url = self.LEGACY_URL_TEMPLATE.format(year=season_year, league_id=target_league_id)
+        try:
+            resp_leg = self.http_session.get(
+                legacy_url,
+                params=[("view", "kona_player_info")],
+                headers=headers,
+                cookies=cookies,
+                timeout=30,
+            )
+            if resp_leg.ok:
+                leg_data = resp_leg.json()
+                if isinstance(leg_data, list) and leg_data:
+                    leg_data = leg_data[0]
+                if isinstance(leg_data, dict) and leg_data.get("players"):
+                    return leg_data["players"]
+        except Exception as exc:
+            logger.warning("Failed to fetch player info for %d: %s", season_year, exc)
         return []

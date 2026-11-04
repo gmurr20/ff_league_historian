@@ -413,7 +413,9 @@ def upsert_players_from_payload(
         else:
             if name and not name.startswith("Player "):
                 player.full_name = name
-            if pos != "UNKNOWN":
+            if pos not in ("UNKNOWN", "FLEX"):
+                player.default_position = pos
+            elif player.default_position == "UNKNOWN":
                 player.default_position = pos
             if team != "FA":
                 player.pro_team = team
@@ -2065,6 +2067,35 @@ def upsert_draft_picks_from_payload(
     pids = [int(p.get("playerId", 0)) for p in raw_picks if p.get("playerId")]
     pids = [pid for pid in pids if pid != 0]
 
+    # Extract season-specific proTeamId for players present in this season's payload
+    season_pro_teams: dict[int, str] = {}
+
+    def _record_season_pro_team(entry: Any) -> None:
+        if not isinstance(entry, dict):
+            return
+        p_obj = entry.get("playerPoolEntry", {}).get("player") or entry.get("player") or entry
+        if isinstance(p_obj, dict) and p_obj.get("id"):
+            raw_pt = p_obj.get("proTeamId") if p_obj.get("proTeamId") is not None else p_obj.get("proTeam")
+            if raw_pt is not None:
+                pt_norm = normalize_pro_team(raw_pt)
+                if pt_norm and pt_norm != "FA":
+                    season_pro_teams[int(p_obj["id"])] = pt_norm
+
+    for p in payload.get("players", []):
+        _record_season_pro_team(p)
+    for p in payload.get("playerPool", []):
+        _record_season_pro_team(p)
+    for tm in payload.get("teams", []):
+        for entry in tm.get("roster", {}).get("entries", []):
+            _record_season_pro_team(entry)
+    for item in payload.get("schedule", []):
+        for side in ("home", "away"):
+            side_data = item.get(side)
+            if isinstance(side_data, dict):
+                for r_key in ("rosterForCurrentScoringPeriod", "rosterForMatchupPeriod", "roster"):
+                    for entry in side_data.get(r_key, {}).get("entries", []):
+                        _record_season_pro_team(entry)
+
     # 2. Check which players already exist in DB
     existing_players: dict[int, Player] = {}
     if pids:
@@ -2072,19 +2103,55 @@ def upsert_draft_picks_from_payload(
             existing_players[p.espn_player_id] = p
     missing_pids = [pid for pid in set(pids) if pid not in existing_players]
 
-    # 3. If there are missing players and client can fetch player info, resolve positive player IDs
-    positive_missing = [pid for pid in missing_pids if pid > 0]
-    if positive_missing and client is not None and hasattr(client, "fetch_player_info"):
+    # 3. Resolve positive player IDs that are missing, unresolved ("Player <id>"), or lacking season-specific pro_team
+    positive_to_fetch = [
+        pid
+        for pid in set(pids)
+        if pid > 0
+        and (
+            pid not in existing_players
+            or existing_players[pid].full_name.startswith("Player ")
+            or existing_players[pid].default_position in ("UNKNOWN", "FLEX")
+            or pid not in season_pro_teams
+        )
+    ]
+    if positive_to_fetch and client is not None and hasattr(client, "fetch_player_info"):
         try:
             fetched_players = client.fetch_player_info(
                 season_year=season.season_year,
-                player_ids=positive_missing,
+                player_ids=positive_to_fetch,
                 league_id=season.league_id,
             )
             if fetched_players:
+                for fp in fetched_players:
+                    _record_season_pro_team(fp)
                 upsert_players_from_payload(session, {"players": fetched_players})
-                for p in session.query(Player).filter(Player.espn_player_id.in_(positive_missing)).all():
+                for p in session.query(Player).filter(Player.espn_player_id.in_(positive_to_fetch)).all():
                     existing_players[p.espn_player_id] = p
+                # Persist fetched players into season mCombined snapshot for offline rebuilds
+                m_comb = (
+                    session.query(RawEspnSnapshot)
+                    .filter_by(season_year=season.season_year, view_name="mCombined", scoring_period=0)
+                    .first()
+                )
+                if m_comb and isinstance(m_comb.payload, dict):
+                    from sqlalchemy.orm.attributes import flag_modified
+
+                    updated_payload = dict(m_comb.payload)
+                    existing_p_list = list(updated_payload.get("players") or [])
+                    seen_p_ids = {
+                        int((x.get("player") or x).get("id", 0))
+                        for x in existing_p_list
+                        if isinstance(x, dict)
+                    }
+                    for fp in fetched_players:
+                        fp_id = int((fp.get("player") or fp).get("id", 0)) if isinstance(fp, dict) else 0
+                        if fp_id and fp_id not in seen_p_ids:
+                            existing_p_list.append(fp)
+                            seen_p_ids.add(fp_id)
+                    updated_payload["players"] = existing_p_list
+                    m_comb.payload = updated_payload
+                    flag_modified(m_comb, "payload")
         except Exception as exc:
             logger.debug("Failed to fetch player info for draft picks: %s", exc)
 
@@ -2103,6 +2170,7 @@ def upsert_draft_picks_from_payload(
                     pro_team=pro_team if pro_team != "UNKNOWN" else "FA",
                     headshot_url=None,
                 )
+                season_pro_teams[pid] = pro_team if pro_team != "UNKNOWN" else "FA"
             else:
                 fallback_player = Player(
                     espn_player_id=pid,
@@ -2113,6 +2181,8 @@ def upsert_draft_picks_from_payload(
             session.add(fallback_player)
             session.flush()
             existing_players[pid] = fallback_player
+        elif pid < 0 and pid in existing_players:
+            season_pro_teams[pid] = existing_players[pid].pro_team
 
     # 5. Upsert DraftPick records
     upserted_picks: list[DraftPick] = []
@@ -2136,6 +2206,7 @@ def upsert_draft_picks_from_payload(
         is_keeper = bool(raw.get("keeper", False))
         slot_id = raw.get("lineupSlotId")
         auto_type = int(raw.get("autoDraftTypeId", 0))
+        pick_pro_team = season_pro_teams.get(pid) or existing_players[pid].pro_team
 
         nom_espn_team = raw.get("nominatingTeamId")
         nom_team = team_lookup.get(int(nom_espn_team)) if nom_espn_team else None
@@ -2158,6 +2229,7 @@ def upsert_draft_picks_from_payload(
                 is_keeper=is_keeper,
                 lineup_slot_id=slot_id,
                 auto_draft_type_id=auto_type,
+                player_pro_team=pick_pro_team,
             )
             session.add(draft_pick)
         else:
@@ -2170,6 +2242,7 @@ def upsert_draft_picks_from_payload(
             draft_pick.is_keeper = is_keeper
             draft_pick.lineup_slot_id = slot_id
             draft_pick.auto_draft_type_id = auto_type
+            draft_pick.player_pro_team = pick_pro_team
 
         upserted_picks.append(draft_pick)
 
