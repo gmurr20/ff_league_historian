@@ -949,3 +949,35 @@ def test_drafts_bad_season_parameter(client: FlaskClient) -> None:
     assert res.status_code == 400
     data = res.get_json()
     assert data["error"] == "BAD_REQUEST"
+
+
+# ============================================================================
+# 10. Admin Ingestion Triggers
+# ============================================================================
+
+
+def test_admin_backfill_and_sync_endpoints(client: FlaskClient) -> None:
+    """Verifies POST /api/v1/admin/backfill and POST /api/v1/admin/sync with authentication."""
+    # Unauthorized without header/body password
+    res_unauth = client.post("/api/v1/admin/backfill", json={"from_snapshots": True})
+    assert res_unauth.status_code == 401
+
+    # Authorized backfill with snapshots
+    res_auth = client.post(
+        "/api/v1/admin/backfill",
+        json={"from_snapshots": True},
+        headers={"X-Admin-Password": "commish"},
+    )
+    assert res_auth.status_code == 200
+    data = res_auth.get_json()
+    assert data["status"] == "SUCCESS"
+
+    # Authorized sync
+    res_sync = client.post(
+        "/api/v1/admin/sync",
+        headers={"X-Admin-Password": "commish"},
+    )
+    assert res_sync.status_code == 200
+    data_sync = res_sync.get_json()
+    assert data_sync["status"] == "SUCCESS"
+

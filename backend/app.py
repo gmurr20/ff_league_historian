@@ -17,6 +17,7 @@ from flask_cors import CORS
 from backend.config import config_by_name
 from backend.database import SessionLocal, init_db
 from backend.routes import (
+    admin_bp,
     drafts_bp,
     earnings_bp,
     hall_of_fame_bp,
@@ -59,6 +60,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     app.register_blueprint(transactions_bp, url_prefix="/api/v1")
     app.register_blueprint(media_bp, url_prefix="/api/v1")
     app.register_blueprint(drafts_bp, url_prefix="/api/v1")
+    app.register_blueprint(admin_bp, url_prefix="/api/v1")
 
     # Cache-Control hook for successful GET requests
     @app.after_request
