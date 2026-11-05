@@ -23,6 +23,9 @@ const props = defineProps<{
 // Sub-view toggle: 'team' (Team Picks & Market Status) | 'trades' (Traded Picks) | 'round' (By Round)
 const activeSubView = ref<'team' | 'trades' | 'round'>('team');
 
+// Toggle to hide rosters so commissioner can scan all team draft capital at a glance
+const hideRosters = ref<boolean>(false);
+
 // Selected round filter for 'round' view (null = all rounds)
 const selectedRound = ref<number | null>(null);
 
@@ -684,8 +687,28 @@ function selectRoundPill(r: number | null) {
         </button>
       </div>
 
-      <div class="text-[11px] font-mono text-slate-500 hidden sm:block">
-        16 Rounds · 192 League Selections
+      <div class="flex items-center gap-2">
+        <button
+          v-if="activeSubView === 'team'"
+          type="button"
+          class="px-2.5 py-1.5 rounded-lg text-[11px] font-mono font-bold border transition-all cursor-pointer min-h-[34px] flex items-center gap-1.5"
+          :class="
+            hideRosters
+              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 shadow-sm'
+              : 'bg-slate-900 text-slate-300 border-slate-800 hover:border-slate-700 hover:text-white'
+          "
+          @click="hideRosters = !hideRosters"
+        >
+          <span
+            class="w-1.5 h-1.5 rounded-full"
+            :class="hideRosters ? 'bg-emerald-400' : 'bg-slate-500'"
+          ></span>
+          <span>{{ hideRosters ? 'Show Rosters' : 'Hide Rosters' }}</span>
+        </button>
+
+        <div class="text-[11px] font-mono text-slate-500 hidden sm:block">
+          16 Rounds · 192 League Selections
+        </div>
       </div>
     </div>
 
@@ -900,26 +923,45 @@ function selectRoundPill(r: number | null) {
         </div>
       </div>
 
-      <!-- Position Tier Legend -->
+      <!-- Position Tier Legend & Quick Hide Rosters Toggle -->
       <div
-        class="bg-slate-900/70 border border-slate-800 rounded-2xl px-3.5 py-2.5 flex flex-wrap items-center gap-1.5 text-[10px] font-mono"
+        class="bg-slate-900/70 border border-slate-800 rounded-2xl px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono"
       >
-        <span class="uppercase font-bold text-slate-400 mr-1">Position Tiers:</span>
-        <span class="px-2 py-0.5 rounded border bg-amber-500/15 text-amber-200 border-amber-400/50 font-bold">
-          T1 Elite (#1–3)
-        </span>
-        <span class="px-2 py-0.5 rounded border bg-emerald-500/15 text-emerald-200 border-emerald-500/45 font-bold">
-          T2 High-End (#4–8)
-        </span>
-        <span class="px-2 py-0.5 rounded border bg-sky-500/15 text-sky-200 border-sky-500/40 font-bold">
-          T3 Starter (#9–16)
-        </span>
-        <span class="px-2 py-0.5 rounded border bg-indigo-500/15 text-indigo-200 border-indigo-500/40 font-bold">
-          T4 Flex (#17–24)
-        </span>
-        <span class="px-2 py-0.5 rounded border bg-slate-950/90 text-slate-400 border-slate-800 font-bold">
-          T5 Depth (#25+)
-        </span>
+        <div v-if="!hideRosters" class="flex flex-wrap items-center gap-1.5">
+          <span class="uppercase font-bold text-slate-400 mr-1">Position Tiers:</span>
+          <span class="px-2 py-0.5 rounded border bg-amber-500/15 text-amber-200 border-amber-400/50 font-bold">
+            T1 Elite (#1–3)
+          </span>
+          <span class="px-2 py-0.5 rounded border bg-emerald-500/15 text-emerald-200 border-emerald-500/45 font-bold">
+            T2 High-End (#4–8)
+          </span>
+          <span class="px-2 py-0.5 rounded border bg-sky-500/15 text-sky-200 border-sky-500/40 font-bold">
+            T3 Starter (#9–16)
+          </span>
+          <span class="px-2 py-0.5 rounded border bg-indigo-500/15 text-indigo-200 border-indigo-500/40 font-bold">
+            T4 Flex (#17–24)
+          </span>
+          <span class="px-2 py-0.5 rounded border bg-slate-950/90 text-slate-400 border-slate-800 font-bold">
+            T5 Depth (#25+)
+          </span>
+        </div>
+        <div v-else class="flex items-center gap-1.5 text-slate-300 font-bold uppercase tracking-wider">
+          <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+          <span>Compact View · Showing 16-Round Draft Capital Only</span>
+        </div>
+
+        <button
+          type="button"
+          class="px-2.5 py-1 rounded-lg border text-[10.5px] font-mono font-bold transition-all cursor-pointer shrink-0 ml-auto"
+          :class="
+            hideRosters
+              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/25'
+              : 'bg-slate-950 text-slate-300 border-slate-700/80 hover:border-slate-600 hover:text-white'
+          "
+          @click="hideRosters = !hideRosters"
+        >
+          {{ hideRosters ? 'Show Team Rosters' : 'Hide Team Rosters' }}
+        </button>
       </div>
 
       <!-- 2. Team Cards Grid (1 Column on Mobile & Tablet, 2 Columns on Desktop) -->
@@ -1056,7 +1098,7 @@ function selectRoundPill(r: number | null) {
 
           <!-- Active Roster Highlighted by Position Tier (QB / RB / WR / TE / D/ST / K) -->
           <div
-            v-if="teamSummary.roster_players && teamSummary.roster_players.length > 0"
+            v-if="!hideRosters && teamSummary.roster_players && teamSummary.roster_players.length > 0"
             class="bg-slate-950/60 border border-slate-800/80 rounded-xl p-2.5 sm:p-3 space-y-2"
           >
             <div class="flex items-center justify-between gap-2">
