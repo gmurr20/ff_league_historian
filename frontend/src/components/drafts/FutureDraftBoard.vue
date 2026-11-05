@@ -1127,9 +1127,6 @@ function selectRoundPill(r: number | null) {
                     >
                       #{{ player.positional_rank }}
                     </span>
-                    <span class="text-[10px] font-mono opacity-75">
-                      {{ player.ppg.toFixed(1) }}
-                    </span>
                     <span
                       v-if="player.slot_position === 'IR'"
                       class="px-1 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[8.5px] font-mono font-bold"
@@ -1707,9 +1704,6 @@ function selectRoundPill(r: number | null) {
                     class="text-[10px] font-mono opacity-85"
                   >
                     #{{ player.positional_rank }}
-                  </span>
-                  <span class="text-[10px] font-mono opacity-80">
-                    {{ player.ppg.toFixed(1) }} PPG
                   </span>
                   <span
                     v-if="player.slot_position === 'IR'"
