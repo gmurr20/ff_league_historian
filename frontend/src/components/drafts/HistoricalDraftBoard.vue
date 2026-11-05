@@ -309,8 +309,8 @@ function clearAllFilters() {
           </button>
         </div>
 
-        <!-- Filter Row: Keepers, Traded, Position chips -->
-        <div class="flex items-center gap-1.5 overflow-x-auto py-1 no-scrollbar select-none">
+        <!-- Filter Row: Keepers, Traded, Position chips (Wrapping for Mobile) -->
+        <div class="flex flex-wrap items-center gap-1.5 py-1 select-none">
           <button
             type="button"
             class="px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all border shrink-0 cursor-pointer min-h-[32px] flex items-center gap-1"
@@ -339,7 +339,7 @@ function clearAllFilters() {
             <span>Traded ({{ tradedPicksCount }})</span>
           </button>
 
-          <div class="h-4 w-px bg-slate-800 mx-0.5 shrink-0"></div>
+          <div class="h-4 w-px bg-slate-800 mx-0.5 hidden sm:block shrink-0"></div>
 
           <!-- Position Pills -->
           <button
@@ -368,8 +368,8 @@ function clearAllFilters() {
           </button>
         </div>
 
-        <!-- Round Carousel Pills -->
-        <div class="flex items-center gap-1.5 overflow-x-auto py-1 no-scrollbar select-none">
+        <!-- Round Pills (Wrapping for Mobile) -->
+        <div class="flex flex-wrap items-center gap-1.5 py-1 select-none">
           <button
             type="button"
             class="px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all border shrink-0 cursor-pointer min-h-[32px]"

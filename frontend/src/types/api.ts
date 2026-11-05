@@ -685,6 +685,21 @@ export interface FutureDraftRound {
   picks: FutureDraftPick[];
 }
 
+export interface FutureDraftRosterPlayer {
+  player_id: number;
+  full_name: string;
+  default_position: string;
+  pro_team: string | null;
+  headshot_url: string | null;
+  slot_position: string;
+  is_starter: boolean;
+  ppg: number;
+  total_points: number;
+  positional_rank: number | null;
+  tier: number;
+  tier_label: string | null;
+}
+
 export interface FutureDraftTeamSummary {
   team_id: number;
   espn_team_id: number;
@@ -700,6 +715,7 @@ export interface FutureDraftTeamSummary {
   picks_held: FutureDraftPick[];
   picks_traded_away: FutureDraftPick[];
   picks_acquired: FutureDraftPick[];
+  roster_players?: FutureDraftRosterPlayer[];
 }
 
 export interface FutureDraftTradeLogEntry {
@@ -711,6 +727,7 @@ export interface FutureDraftTradeLogEntry {
   week: number | null;
   executed_at: string | null;
   espn_transaction_id: string;
+  trade_detail?: TradeDetail | null;
 }
 
 export interface FutureDraftData {
@@ -723,6 +740,7 @@ export interface FutureDraftData {
   rounds: FutureDraftRound[];
   teams_summary: FutureDraftTeamSummary[];
   traded_picks_log: FutureDraftTradeLogEntry[];
+  trades?: TradeDetail[];
 }
 
 export interface HistoricalDraftPlayerRef {

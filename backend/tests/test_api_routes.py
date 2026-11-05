@@ -907,8 +907,14 @@ def test_drafts_future_default_endpoint(client: FlaskClient) -> None:
     future_draft = data["future_draft"]
     assert future_draft is not None
     assert "provisional_order_note" in future_draft
+    assert "trades" in future_draft
+    assert isinstance(future_draft["trades"], list)
     assert len(future_draft["rounds"]) == 16
     assert len(future_draft["teams_summary"]) == 8
+    for ts in future_draft["teams_summary"]:
+        assert "record" in ts
+        assert "roster_players" in ts
+        assert isinstance(ts["roster_players"], list)
 
     # Check snake round 1 vs round 2 pick order
     r1_picks = future_draft["rounds"][0]["picks"]

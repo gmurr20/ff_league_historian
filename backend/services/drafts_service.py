@@ -186,6 +186,17 @@ def _build_future_draft_data(
     edited_trades = trade_overrides.get("edited_trades", {})
     espn_team_lookup = {t.espn_team_id: t for t in teams}
 
+    # Fetch rich TradeDetail objects for any trades linked to draft picks
+    trade_detail_map: dict[str, dict[str, Any]] = {}
+    try:
+        from backend.services.trades_service import get_trades_trends
+        trends_payload = get_trades_trends(session, None)
+        for t_obj in trends_payload.get("trades", []):
+            if isinstance(t_obj, dict) and t_obj.get("espn_transaction_id"):
+                trade_detail_map[str(t_obj["espn_transaction_id"])] = t_obj
+    except Exception:
+        trade_detail_map = {}
+
     traded_picks_records = (
         session.query(TradedDraftPick, TransactionItem, Transaction)
         .join(TransactionItem, TradedDraftPick.transaction_item_id == TransactionItem.id)
@@ -247,6 +258,7 @@ def _build_future_draft_data(
         if target_pick:
             target_pick["current_team"] = _team_dict(to_team)
             target_pick["is_traded"] = True
+            tx_detail = trade_detail_map.get(str(tx.espn_transaction_id))
             trade_info = {
                 "transaction_id": tx.id,
                 "espn_transaction_id": tx.espn_transaction_id,
@@ -254,6 +266,7 @@ def _build_future_draft_data(
                 "executed_at": tx.executed_at.isoformat() if tx.executed_at else None,
                 "from_team": _team_dict(from_team) if from_team else None,
                 "to_team": _team_dict(to_team),
+                "trade_detail": tx_detail,
             }
             target_pick["trade_details"] = trade_info
             target_pick["movement_history"].append(_team_dict(to_team))
@@ -267,6 +280,7 @@ def _build_future_draft_data(
                 "week": tx.week,
                 "executed_at": tx.executed_at.isoformat() if tx.executed_at else None,
                 "espn_transaction_id": tx.espn_transaction_id,
+                "trade_detail": tx_detail,
             })
 
     # Catch any legacy placeholder items
@@ -297,6 +311,7 @@ def _build_future_draft_data(
         if target_pick:
             target_pick["current_team"] = _team_dict(to_team)
             target_pick["is_traded"] = True
+            tx_detail = trade_detail_map.get(str(tx.espn_transaction_id))
             trade_info = {
                 "transaction_id": tx.id,
                 "espn_transaction_id": tx.espn_transaction_id,
@@ -304,6 +319,7 @@ def _build_future_draft_data(
                 "executed_at": tx.executed_at.isoformat() if tx.executed_at else None,
                 "from_team": _team_dict(from_team),
                 "to_team": _team_dict(to_team),
+                "trade_detail": tx_detail,
             }
             target_pick["trade_details"] = trade_info
             target_pick["movement_history"].append(_team_dict(to_team))
@@ -316,6 +332,7 @@ def _build_future_draft_data(
                 "week": tx.week,
                 "executed_at": tx.executed_at.isoformat() if tx.executed_at else None,
                 "espn_transaction_id": tx.espn_transaction_id,
+                "trade_detail": tx_detail,
             })
 
     # Also apply any supplemental_picks from TradeOverride / edited_trades not yet in traded_picks_log
@@ -342,6 +359,7 @@ def _build_future_draft_data(
                 target_pick["current_team"] = _team_dict(to_team)
                 target_pick["is_traded"] = True
                 w_val = e_val.get("week")
+                tx_detail = trade_detail_map.get(str(e_tx_id))
                 trade_info = {
                     "transaction_id": 0,
                     "espn_transaction_id": e_tx_id,
@@ -349,6 +367,7 @@ def _build_future_draft_data(
                     "executed_at": None,
                     "from_team": _team_dict(from_team),
                     "to_team": _team_dict(to_team),
+                    "trade_detail": tx_detail,
                 }
                 target_pick["trade_details"] = trade_info
                 target_pick["movement_history"].append(_team_dict(to_team))
@@ -361,6 +380,7 @@ def _build_future_draft_data(
                     "week": w_val,
                     "executed_at": None,
                     "espn_transaction_id": e_tx_id,
+                    "trade_detail": tx_detail,
                 })
                 logged_tx_rounds.add((e_tx_id, r_num))
 
@@ -384,10 +404,127 @@ def _build_future_draft_data(
     for t_summary in ordered_teams_summary:
         t_summary["net_picks"] = t_summary["total_picks"] - total_rounds
 
+    # Populate active season roster with positional rank and tier for each franchise
+    try:
+        from backend.models.lineup import WeeklyLineup
+        from backend.services.trades_service import (
+            _has_played_week,
+            compute_positional_ranks,
+            get_tier_info,
+        )
+
+        season_lineups = (
+            session.query(WeeklyLineup)
+            .filter(WeeklyLineup.season_year == ref_season_year)
+            .all()
+        )
+        if season_lineups:
+            p_ids = {wl.player_id for wl in season_lineups}
+            players_list = (
+                session.query(Player).filter(Player.espn_player_id.in_(p_ids)).all()
+                if p_ids
+                else []
+            )
+            p_map = {p.espn_player_id: p for p in players_list}
+            p_lineups: dict[tuple[int, int], list[WeeklyLineup]] = defaultdict(list)
+            team_week_lineups: dict[int, dict[int, list[WeeklyLineup]]] = defaultdict(
+                lambda: defaultdict(list)
+            )
+            max_season_wk = 1
+            for wl in season_lineups:
+                p_lineups[(ref_season_year, wl.player_id)].append(wl)
+                team_week_lineups[wl.team_id][wl.week].append(wl)
+                if wl.week > max_season_wk:
+                    max_season_wk = wl.week
+
+            pos_ranks = compute_positional_ranks(
+                ref_season_year, max_season_wk + 1, p_lineups, p_map
+            )
+
+            pos_order = {"QB": 1, "RB": 2, "WR": 3, "TE": 4, "FLEX": 5, "D/ST": 6, "K": 7}
+
+            for t_summary in ordered_teams_summary:
+                tid = t_summary["team_id"]
+                wk_map = team_week_lineups.get(tid, {})
+                if not wk_map:
+                    t_summary["roster_players"] = []
+                    continue
+                latest_wk = max(wk_map.keys())
+                curr_wls = wk_map[latest_wk]
+
+                roster_items: list[dict[str, Any]] = []
+                for wl in curr_wls:
+                    p = p_map.get(wl.player_id)
+                    if not p:
+                        continue
+                    pos = p.default_position or "FLEX"
+                    if pos == "PICK":
+                        continue
+                    rk = pos_ranks.get(wl.player_id)
+                    _, tier_lbl = get_tier_info(rk)
+                    if rk is not None and rk <= 3:
+                        tier_num = 1
+                    elif rk is not None and rk <= 8:
+                        tier_num = 2
+                    elif rk is not None and rk <= 16:
+                        tier_num = 3
+                    elif rk is not None and rk <= 24:
+                        tier_num = 4
+                    else:
+                        tier_num = 5
+
+                    played_wls = [
+                        x
+                        for x in p_lineups[(ref_season_year, wl.player_id)]
+                        if _has_played_week(x)
+                    ]
+                    tot_pts = sum(float(x.actual_points or 0.0) for x in played_wls)
+                    ppg = (tot_pts / len(played_wls)) if played_wls else 0.0
+
+                    roster_items.append({
+                        "player_id": p.espn_player_id,
+                        "full_name": p.full_name,
+                        "default_position": pos,
+                        "pro_team": p.pro_team,
+                        "headshot_url": p.headshot_url,
+                        "slot_position": wl.slot_position,
+                        "is_starter": bool(wl.is_starter),
+                        "ppg": round(ppg, 1),
+                        "total_points": round(tot_pts, 1),
+                        "positional_rank": rk,
+                        "tier": tier_num,
+                        "tier_label": tier_lbl,
+                    })
+
+                roster_items.sort(
+                    key=lambda x: (
+                        pos_order.get(x["default_position"], 99),
+                        x["positional_rank"] if x["positional_rank"] is not None else 999,
+                        -x["ppg"],
+                    )
+                )
+                t_summary["roster_players"] = roster_items
+        else:
+            for t_summary in ordered_teams_summary:
+                t_summary["roster_players"] = []
+    except Exception:
+        for t_summary in ordered_teams_summary:
+            t_summary.setdefault("roster_players", [])
+
     rounds_list = [
         {"round": r, "picks": board_picks_by_round[r]}
         for r in range(1, total_rounds + 1)
     ]
+
+    # Collect distinct full TradeDetail records involved in future traded picks
+    relevant_trades: list[dict[str, Any]] = []
+    seen_tx: set[str] = set()
+    for entry in traded_picks_log:
+        tx_id = entry.get("espn_transaction_id")
+        if tx_id and tx_id not in seen_tx:
+            seen_tx.add(tx_id)
+            if tx_id in trade_detail_map:
+                relevant_trades.append(trade_detail_map[tx_id])
 
     return {
         "season_year": future_season_year,
@@ -403,6 +540,7 @@ def _build_future_draft_data(
         "rounds": rounds_list,
         "teams_summary": ordered_teams_summary,
         "traded_picks_log": traded_picks_log,
+        "trades": relevant_trades,
     }
 
 
