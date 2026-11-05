@@ -606,17 +606,21 @@ def upsert_weekly_lineups_from_payload(
                 "entry": entry,
             })
 
-    # 3. Extract from team rosters (e.g. from mTeam + mRoster in ESPN leagueHistory)
-    if not raw_entries and "teams" in payload:
+    # 3. Extract from team rosters (e.g. from mTeam + mRoster in ESPN leagueHistory,
+    #    scoring_period=0 opening rosters, or teams on a playoff bye missing from schedule boxscores)
+    if "teams" in payload and ((weeks and len(weeks) == 1) or not raw_entries):
         target_week = (
             weeks[0]
             if weeks and len(weeks) == 1
             else int(payload.get("scoringPeriodId") or season.current_week or 1)
         )
         if weeks is None or target_week in weeks:
+            teams_with_week_entries = {
+                r["espn_team_id"] for r in raw_entries if r["week"] == target_week
+            }
             for team_item in payload.get("teams", []):
                 espn_t = team_item.get("id")
-                if espn_t not in team_lookup:
+                if espn_t not in team_lookup or espn_t in teams_with_week_entries:
                     continue
                 entries = team_item.get("roster", {}).get("entries", [])
                 for entry in entries:
@@ -624,6 +628,7 @@ def upsert_weekly_lineups_from_payload(
                         "week": target_week,
                         "espn_team_id": espn_t,
                         "entry": entry,
+                        "from_team_roster": True,
                     })
 
     if not raw_entries:
@@ -704,22 +709,32 @@ def upsert_weekly_lineups_from_payload(
 
         # Points
         ppe = entry.get("playerPoolEntry", {})
-        actual_raw = (
-            entry.get("actualPoints")
-            if "actualPoints" in entry
-            else entry.get("appliedStatTotal", ppe.get("appliedStatTotal", 0.0))
-        )
-        proj_raw = (
-            entry.get("projectedPoints")
-            if "projectedPoints" in entry
-            else entry.get("projectedStatTotal", ppe.get("projectedStatTotal", 0.0))
-        )
+        from_team_roster = bool(raw.get("from_team_roster"))
+        if week == 0:
+            actual_raw = 0.0
+            proj_raw = 0.0
+        elif from_team_roster and "actualPoints" not in entry and "appliedStatTotal" not in entry:
+            # On team.roster.entries, playerPoolEntry.appliedStatTotal is the full season total,
+            # so default to 0.0 unless per-scoringPeriod stats for `week` are found below.
+            actual_raw = 0.0
+            proj_raw = 0.0
+        else:
+            actual_raw = (
+                entry.get("actualPoints")
+                if "actualPoints" in entry
+                else entry.get("appliedStatTotal", ppe.get("appliedStatTotal", 0.0))
+            )
+            proj_raw = (
+                entry.get("projectedPoints")
+                if "projectedPoints" in entry
+                else entry.get("projectedStatTotal", ppe.get("projectedStatTotal", 0.0))
+            )
 
         stats = dict(entry.get("weeklyStats") or ppe.get("weeklyStats") or {})
 
         # If actual_raw is 0 or appliedStatTotal is seasonal, check per-scoringPeriod stats on player
         p_stats = (p_obj.get("stats") or []) if isinstance(p_obj, dict) else []
-        if p_stats:
+        if p_stats and week > 0:
             for s in p_stats:
                 if s.get("scoringPeriodId") == week:
                     if s.get("statSourceId") == 0:

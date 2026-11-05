@@ -732,3 +732,160 @@ def test_canonical_trade_overrides_multi_trades_and_supplemental_picks(db_sessio
     assert len(drafts_data["future_draft"]["traded_picks_log"]) == 2
 
 
+def test_week_zero_and_playoff_bye_roster_persistence(db_session):
+    """Verify week=0 opening rosters and playoff bye week rosters are captured without inflating points."""
+    from backend.models.manager import Manager
+    from backend.models.season import Season
+    from backend.models.team import Team
+
+    season = Season(
+        season_year=2025,
+        league_id="12345",
+        league_name="Test League",
+        is_active=False,
+        is_completed=True,
+        current_week=15,
+        regular_season_weeks=14,
+        playoff_team_count=6,
+    )
+    db_session.add(season)
+    m1 = Manager(espn_member_id="{M1}", display_name="Alpha")
+    m2 = Manager(espn_member_id="{M2}", display_name="Bravo")
+    m3 = Manager(espn_member_id="{M3}", display_name="Charlie")
+    db_session.add_all([m1, m2, m3])
+    db_session.flush()
+
+    t1 = Team(season_year=2025, espn_team_id=1, team_name="Team 1", manager_id=m1.id)
+    t2 = Team(season_year=2025, espn_team_id=2, team_name="Team 2", manager_id=m2.id)
+    t3 = Team(season_year=2025, espn_team_id=3, team_name="Team 3 (Bye)", manager_id=m3.id)
+    db_session.add_all([t1, t2, t3])
+    db_session.flush()
+    team_map = {1: t1, 2: t2, 3: t3}
+
+    # 1. Pre-Week 1 (week=0) post-draft snapshot where playerPoolEntry has season totals
+    sp0_payload = {
+        "seasonId": 2025,
+        "scoringPeriodId": 0,
+        "teams": [
+            {
+                "id": 1,
+                "roster": {
+                    "entries": [
+                        {
+                            "playerId": 9001,
+                            "lineupSlotId": 0,
+                            "acquisitionType": "DRAFT",
+                            "playerPoolEntry": {
+                                "appliedStatTotal": 295.4,
+                                "player": {
+                                    "id": 9001,
+                                    "fullName": "Josh Allen",
+                                    "defaultPositionId": 1,
+                                    "proTeamId": 2,
+                                },
+                            },
+                        }
+                    ]
+                },
+            }
+        ],
+    }
+    lineups_w0 = upsert_weekly_lineups_from_payload(
+        db_session, season, sp0_payload, team_map, weeks=[0]
+    )
+    assert len(lineups_w0) == 1
+    assert lineups_w0[0].week == 0
+    assert float(lineups_w0[0].actual_points) == 0.0
+    assert lineups_w0[0].acquisition_type == "DRAFT"
+
+    # 2. Week 15 Playoff week: Team 1 vs Team 2 in schedule; Team 3 has a BYE (only in teams[].roster)
+    sp15_payload = {
+        "seasonId": 2025,
+        "scoringPeriodId": 15,
+        "schedule": [
+            {
+                "id": 101,
+                "matchupPeriodId": 15,
+                "home": {
+                    "teamId": 1,
+                    "rosterForCurrentScoringPeriod": {
+                        "entries": [
+                            {
+                                "playerId": 9001,
+                                "lineupSlotId": 0,
+                                "appliedStatTotal": 28.5,
+                                "playerPoolEntry": {
+                                    "player": {
+                                        "id": 9001,
+                                        "fullName": "Josh Allen",
+                                        "defaultPositionId": 1,
+                                        "proTeamId": 2,
+                                    }
+                                },
+                            }
+                        ]
+                    },
+                },
+                "away": {
+                    "teamId": 2,
+                    "rosterForCurrentScoringPeriod": {
+                        "entries": [
+                            {
+                                "playerId": 9002,
+                                "lineupSlotId": 2,
+                                "appliedStatTotal": 19.2,
+                                "playerPoolEntry": {
+                                    "player": {
+                                        "id": 9002,
+                                        "fullName": "Saquon Barkley",
+                                        "defaultPositionId": 2,
+                                        "proTeamId": 21,
+                                    }
+                                },
+                            }
+                        ]
+                    },
+                },
+            }
+        ],
+        "teams": [
+            {
+                "id": 3,
+                "roster": {
+                    "entries": [
+                        {
+                            "playerId": 9003,
+                            "lineupSlotId": 4,
+                            "playerPoolEntry": {
+                                "appliedStatTotal": 310.0,
+                                "player": {
+                                    "id": 9003,
+                                    "fullName": "Ja'Marr Chase",
+                                    "defaultPositionId": 3,
+                                    "proTeamId": 4,
+                                    "stats": [
+                                        {
+                                            "scoringPeriodId": 15,
+                                            "statSourceId": 0,
+                                            "appliedTotal": 24.6,
+                                        }
+                                    ],
+                                },
+                            },
+                        }
+                    ]
+                },
+            }
+        ],
+    }
+    lineups_w15 = upsert_weekly_lineups_from_payload(
+        db_session, season, sp15_payload, team_map, weeks=[15]
+    )
+    assert len(lineups_w15) == 3
+    bye_lineup = next(wl for wl in lineups_w15 if wl.team_id == t3.id)
+    assert bye_lineup.week == 15
+    assert bye_lineup.player_id == 9003
+    assert float(bye_lineup.actual_points) == 24.6
+
+
+

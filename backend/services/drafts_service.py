@@ -430,9 +430,10 @@ def _build_future_draft_data(
             team_week_lineups: dict[int, dict[int, list[WeeklyLineup]]] = defaultdict(
                 lambda: defaultdict(list)
             )
-            max_season_wk = 1
+            max_season_wk = 0
             for wl in season_lineups:
-                p_lineups[(ref_season_year, wl.player_id)].append(wl)
+                if wl.week >= 1:
+                    p_lineups[(ref_season_year, wl.player_id)].append(wl)
                 team_week_lineups[wl.team_id][wl.week].append(wl)
                 if wl.week > max_season_wk:
                     max_season_wk = wl.week

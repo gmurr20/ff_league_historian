@@ -173,9 +173,9 @@ def backfill_history(
             players = upsert_players_from_payload(session, combined)
             lineups = upsert_weekly_lineups_from_payload(session, season, combined, team_map)
 
-            # Restore individual scoring period boxscore snapshots if present
+            # Restore individual scoring period boxscore snapshots if present (including sp=0 opening rosters)
             for snap in year_snaps:
-                if snap.view_name == "mBoxscore" and snap.scoring_period > 0 and isinstance(snap.payload, dict):
+                if snap.view_name == "mBoxscore" and snap.scoring_period >= 0 and isinstance(snap.payload, dict):
                     upsert_players_from_payload(session, snap.payload)
                     period_lineups = upsert_weekly_lineups_from_payload(
                         session, season, snap.payload, team_map, weeks=[snap.scoring_period]
@@ -352,7 +352,7 @@ def backfill_history(
                                 )
                             )
                         upsert_players_from_payload(session, sp_payload)
-                        if sp > 0:
+                        if sp >= 0:
                             upsert_weekly_lineups_from_payload(
                                 session, season, sp_payload, team_map, weeks=[sp]
                             )
