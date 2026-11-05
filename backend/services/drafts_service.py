@@ -408,6 +408,7 @@ def _build_future_draft_data(
     try:
         from backend.models.lineup import WeeklyLineup
         from backend.services.trades_service import (
+            _dedupe_lineups_by_week,
             _has_played_week,
             compute_positional_ranks,
             compute_tier_ranks,
@@ -431,13 +432,40 @@ def _build_future_draft_data(
             team_week_lineups: dict[int, dict[int, list[WeeklyLineup]]] = defaultdict(
                 lambda: defaultdict(list)
             )
+            scored_season_weeks: set[int] = set()
             max_season_wk = 0
             for wl in season_lineups:
                 if wl.week >= 1:
                     p_lineups[(ref_season_year, wl.player_id)].append(wl)
+                    if float(wl.actual_points or 0.0) > 0.0:
+                        scored_season_weeks.add(wl.week)
                 team_week_lineups[wl.team_id][wl.week].append(wl)
                 if wl.week > max_season_wk:
                     max_season_wk = wl.week
+
+            # Determine canonical owner in max_season_wk if a player was traded or dropped mid-week
+            latest_owner_by_pid: dict[int, int | None] = {}
+            for wl in sorted(season_lineups, key=lambda x: (x.week, x.id or 0)):
+                latest_owner_by_pid[wl.player_id] = wl.team_id
+            recent_tx_items = (
+                session.query(TransactionItem, Transaction)
+                .join(Transaction, TransactionItem.transaction_id == Transaction.id)
+                .filter(
+                    Transaction.season_year == ref_season_year,
+                    Transaction.status == "EXECUTED",
+                    Transaction.week >= max(1, max_season_wk - 1),
+                )
+                .order_by(Transaction.week.asc(), Transaction.executed_at.asc(), Transaction.id.asc())
+                .all()
+            )
+            for item, tx in recent_tx_items:
+                if tx.espn_transaction_id in deleted_trade_ids:
+                    continue
+                if item.item_type == "DROP":
+                    if latest_owner_by_pid.get(item.player_id) == item.from_team_id:
+                        latest_owner_by_pid[item.player_id] = None
+                elif item.item_type in ("ADD", "TRADE") and item.to_team_id:
+                    latest_owner_by_pid[item.player_id] = item.to_team_id
 
             pos_ranks = compute_positional_ranks(
                 ref_season_year, max_season_wk + 1, p_lineups, p_map
@@ -458,7 +486,15 @@ def _build_future_draft_data(
                 curr_wls = wk_map[latest_wk]
 
                 roster_items: list[dict[str, Any]] = []
+                seen_pids: set[int] = set()
                 for wl in curr_wls:
+                    if wl.player_id in seen_pids:
+                        continue
+                    # If player appears on multiple teams in latest_wk due to a mid-week trade,
+                    # only show them on their latest owning team.
+                    if latest_owner_by_pid.get(wl.player_id, tid) != tid:
+                        continue
+                    seen_pids.add(wl.player_id)
                     p = p_map.get(wl.player_id)
                     if not p:
                         continue
@@ -479,10 +515,11 @@ def _build_future_draft_data(
                     else:
                         tier_num = 5
 
+                    dedup_wls = _dedupe_lineups_by_week(p_lineups[(ref_season_year, wl.player_id)])
                     played_wls = [
                         x
-                        for x in p_lineups[(ref_season_year, wl.player_id)]
-                        if _has_played_week(x)
+                        for x in dedup_wls
+                        if _has_played_week(x, scored_season_weeks)
                     ]
                     tot_pts = sum(float(x.actual_points or 0.0) for x in played_wls)
                     ppg = (tot_pts / len(played_wls)) if played_wls else 0.0

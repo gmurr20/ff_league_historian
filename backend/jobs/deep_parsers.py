@@ -827,9 +827,24 @@ def upsert_weekly_lineups_from_payload(
 
     session.flush()
 
-    # Calculate optimal scores and bench points on matchups
+    # Calculate optimal scores and bench points on matchups, and prune stale rows
     player_pos_map = {p.espn_player_id: p.default_position for p in player_map.values()}
     for (week, team_id), entries in by_week_team.items():
+        if len(entries) >= 8:
+            current_pids = {e.player_id for e in entries}
+            stale_rows = (
+                session.query(WeeklyLineup)
+                .filter(
+                    WeeklyLineup.season_year == season.season_year,
+                    WeeklyLineup.week == week,
+                    WeeklyLineup.team_id == team_id,
+                    WeeklyLineup.player_id.notin_(current_pids),
+                )
+                .all()
+            )
+            for s_row in stale_rows:
+                session.delete(s_row)
+
         opt_score, bench_pts = compute_optimal_score(
             entries,
             roster_slots=season.roster_slots,

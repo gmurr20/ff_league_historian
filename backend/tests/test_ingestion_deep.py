@@ -948,12 +948,98 @@ def test_week_zero_and_playoff_bye_roster_persistence(db_session):
             ),
         ],
     }
-    ranks = compute_positional_ranks(2025, 7, p_lineups, p_map)
-    tier_ranks = compute_tier_ranks(2025, 7, p_lineups, p_map)
+    ranks = compute_positional_ranks(2025, 8, p_lineups, p_map)
+    tier_ranks = compute_tier_ranks(2025, 8, p_lineups, p_map)
     assert ranks[9101] == 1
     assert ranks[9102] == 2
     assert tier_ranks[9101] == 1
     assert tier_ranks[9102] == 2
+
+    # 4. Verify unplayed current week (week 7 with 0.0 actual, 16.5 projected) does NOT
+    # dilute a returning IR/suspended player's PPG (e.g. Josh Jacobs scenario):
+    jacobs_rb = Player(espn_player_id=9103, full_name="Josh Jacobs", default_position="RB", pro_team="GB")
+    solid_rb = Player(espn_player_id=9104, full_name="Solid RB", default_position="RB", pro_team="CHI")
+    p_map[9103] = jacobs_rb
+    p_map[9104] = solid_rb
+    p_lineups[(2025, 9103)] = [
+        *[
+            WeeklyLineup(
+                season_year=2025,
+                week=w,
+                team_id=t1.id,
+                player_id=9103,
+                slot_position="IR",
+                is_starter=False,
+                actual_points=Decimal("0.0"),
+                projected_points=Decimal("0.0"),
+                weekly_stats={"injury_status": "INJURY_RESERVE", "injured": True},
+            )
+            for w in range(1, 5)
+        ],
+        WeeklyLineup(
+            season_year=2025,
+            week=5,
+            team_id=t1.id,
+            player_id=9103,
+            slot_position="RB",
+            is_starter=True,
+            actual_points=Decimal("20.1"),
+            projected_points=Decimal("12.6"),
+            weekly_stats={},
+        ),
+        WeeklyLineup(
+            season_year=2025,
+            week=6,
+            team_id=t1.id,
+            player_id=9103,
+            slot_position="RB",
+            is_starter=True,
+            actual_points=Decimal("23.2"),
+            projected_points=Decimal("15.1"),
+            weekly_stats={},
+        ),
+        # Unplayed Week 7 (no player in league has > 0 actual_points in Week 7)
+        WeeklyLineup(
+            season_year=2025,
+            week=7,
+            team_id=t1.id,
+            player_id=9103,
+            slot_position="RB",
+            is_starter=True,
+            actual_points=Decimal("0.0"),
+            projected_points=Decimal("16.5"),
+            weekly_stats={},
+        ),
+    ]
+    p_lineups[(2025, 9104)] = [
+        *[
+            WeeklyLineup(
+                season_year=2025,
+                week=w,
+                team_id=t2.id,
+                player_id=9104,
+                slot_position="RB",
+                is_starter=True,
+                actual_points=Decimal("16.0"),
+                projected_points=Decimal("14.0"),
+                weekly_stats={},
+            )
+            for w in range(1, 7)
+        ],
+        WeeklyLineup(
+            season_year=2025,
+            week=7,
+            team_id=t2.id,
+            player_id=9104,
+            slot_position="RB",
+            is_starter=True,
+            actual_points=Decimal("0.0"),
+            projected_points=Decimal("14.0"),
+            weekly_stats={},
+        ),
+    ]
+    rb_ranks = compute_positional_ranks(2025, 8, p_lineups, p_map)
+    assert rb_ranks[9103] == 1  # 21.65 PPG across 2 played games beats 16.0 PPG
 
 
 
