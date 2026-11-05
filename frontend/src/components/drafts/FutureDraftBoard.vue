@@ -1128,10 +1128,10 @@ function selectRoundPill(r: number | null) {
                       #{{ player.positional_rank }}
                     </span>
                     <span
-                      v-if="player.slot_position === 'IR'"
+                      v-if="player.slot_position === 'IR' || player.slot_position === 'OUT'"
                       class="px-1 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[8.5px] font-mono font-bold"
                     >
-                      IR
+                      {{ player.slot_position }}
                     </span>
                   </div>
                 </div>
@@ -1706,10 +1706,10 @@ function selectRoundPill(r: number | null) {
                     #{{ player.positional_rank }}
                   </span>
                   <span
-                    v-if="player.slot_position === 'IR'"
+                    v-if="player.slot_position === 'IR' || player.slot_position === 'OUT'"
                     class="px-1 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[8.5px] font-mono font-bold"
                   >
-                    IR
+                    {{ player.slot_position }}
                   </span>
                 </div>
               </div>

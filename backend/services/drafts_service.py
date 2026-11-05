@@ -524,13 +524,25 @@ def _build_future_draft_data(
                     tot_pts = sum(float(x.actual_points or 0.0) for x in played_wls)
                     ppg = (tot_pts / len(played_wls)) if played_wls else 0.0
 
+                    inj_status = (
+                        wl.weekly_stats.get("injury_status")
+                        if isinstance(wl.weekly_stats, dict)
+                        else None
+                    )
+                    if wl.slot_position == "IR" or inj_status == "INJURY_RESERVE":
+                        display_slot = "IR"
+                    elif inj_status in ("OUT", "DOUBTFUL", "SUSPENSION"):
+                        display_slot = "OUT"
+                    else:
+                        display_slot = wl.slot_position
+
                     roster_items.append({
                         "player_id": p.espn_player_id,
                         "full_name": p.full_name,
                         "default_position": pos,
                         "pro_team": p.pro_team,
                         "headshot_url": p.headshot_url,
-                        "slot_position": wl.slot_position,
+                        "slot_position": display_slot,
                         "is_starter": bool(wl.is_starter),
                         "ppg": round(ppg, 1),
                         "total_points": round(tot_pts, 1),
