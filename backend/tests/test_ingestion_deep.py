@@ -887,5 +887,71 @@ def test_week_zero_and_playoff_bye_roster_persistence(db_session):
     assert bye_lineup.player_id == 9003
     assert float(bye_lineup.actual_points) == 24.6
 
+    # 3. Verify composite positional tier ranking:
+    # A full-season WR1 with high projected points (~19.5) ranks #1 ahead of a
+    # 2-week spike WR who put up 0.0 in his 3rd week with low projected points (~6.5).
+    from backend.models.lineup import WeeklyLineup
+    from backend.models.player import Player
+    from backend.services.trades_service import compute_positional_ranks
+
+    stud_wr = Player(espn_player_id=9101, full_name="Stud WR", default_position="WR", pro_team="CIN")
+    spike_wr = Player(espn_player_id=9102, full_name="Spike WR", default_position="WR", pro_team="NYJ")
+    p_map = {9101: stud_wr, 9102: spike_wr}
+    p_lineups = {
+        (2025, 9101): [
+            WeeklyLineup(
+                season_year=2025,
+                week=w,
+                team_id=t1.id,
+                player_id=9101,
+                slot_position="WR",
+                is_starter=True,
+                actual_points=Decimal("18.5"),
+                projected_points=Decimal("19.5"),
+                weekly_stats={},
+            )
+            for w in range(1, 7)
+        ],
+        (2025, 9102): [
+            WeeklyLineup(
+                season_year=2025,
+                week=4,
+                team_id=t2.id,
+                player_id=9102,
+                slot_position="BE",
+                is_starter=False,
+                actual_points=Decimal("22.0"),
+                projected_points=Decimal("5.5"),
+                weekly_stats={},
+            ),
+            WeeklyLineup(
+                season_year=2025,
+                week=5,
+                team_id=t2.id,
+                player_id=9102,
+                slot_position="BE",
+                is_starter=False,
+                actual_points=Decimal("20.0"),
+                projected_points=Decimal("6.5"),
+                weekly_stats={},
+            ),
+            WeeklyLineup(
+                season_year=2025,
+                week=6,
+                team_id=t2.id,
+                player_id=9102,
+                slot_position="WR",
+                is_starter=True,
+                actual_points=Decimal("0.0"),
+                projected_points=Decimal("7.0"),
+                weekly_stats={},
+            ),
+        ],
+    }
+    ranks = compute_positional_ranks(2025, 7, p_lineups, p_map)
+    assert ranks[9101] == 1
+    assert ranks[9102] == 2
+
+
 
 

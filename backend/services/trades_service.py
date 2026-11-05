@@ -61,6 +61,17 @@ def _has_played_week(wl: WeeklyLineup) -> bool:
         for k in ("receptions", "rushing_yards", "receiving_yards", "passing_yards", "touchdowns", "fumbles", "field_goals")
     ):
         return True
+    # If the player was on an active/bench slot (not IR), not marked OUT/IR/DOUBTFUL,
+    # and had a meaningful pre-game projection (>= 2.0 pts, so not on an NFL bye),
+    # a 0.0 actual score is a real goose-egg game played and must count in their denominator.
+    if getattr(wl, "slot_position", "BE") != "IR" and float(wl.projected_points or 0.0) >= 2.0:
+        inj_status = (
+            wl.weekly_stats.get("injury_status")
+            if isinstance(wl.weekly_stats, dict)
+            else None
+        )
+        if inj_status not in ("OUT", "INJURY_RESERVE", "DOUBTFUL", "SUSPENSION"):
+            return True
     return False
 
 
@@ -85,29 +96,98 @@ def compute_positional_ranks(
     player_lineups: dict[tuple[int, int], list[WeeklyLineup]],
     player_map: dict[int, Player],
 ) -> dict[int, int]:
-    """Calculate 1-based positional rank for all players in the season based on pre-trade PPG."""
+    """Calculate 1-based positional rank for all players in the season.
+
+    Combines three signals to prevent 1-2 week waiver spikes from inflating into Tier 1:
+      1. Elapsed Season Pace (total points / elapsed scored weeks in window)
+      2. Bayesian Regressed PPG (regressed toward positional baseline over k=3 prior games)
+      3. ESPN Projected Points Proxy (blending recent & season non-zero weekly projections
+         to capture depth chart role and forward expectation)
+    """
+    # Determine how many scored weeks have elapsed in the target window across the league
+    window_weeks: set[int] = set()
+    all_season_weeks: set[int] = set()
+    for (s_yr, _p_id), lineups in player_lineups.items():
+        if s_yr != season_year:
+            continue
+        for wl in lineups:
+            if wl.week >= 1 and float(wl.actual_points or 0.0) > 0.0:
+                all_season_weeks.add(wl.week)
+                if wl.week < effective_start_week:
+                    window_weeks.add(wl.week)
+
+    elapsed_window_weeks = max(len(window_weeks), 1)
+    elapsed_season_weeks = max(len(all_season_weeks), 1)
+
     player_pre_metrics: dict[int, tuple[str, float, float, int]] = {}
 
     for (s_yr, p_id), lineups in player_lineups.items():
         if s_yr != season_year:
             continue
-        pre_l = [wl for wl in lineups if wl.week < effective_start_week and _has_played_week(wl)]
-        if pre_l:
-            pre_pts = sum(float(wl.actual_points or 0.0) for wl in pre_l)
-            ppg = pre_pts / len(pre_l)
-            tot_pts = pre_pts
-        else:
-            tot_l = [wl for wl in lineups if _has_played_week(wl)]
-            tot_pts = sum(float(wl.actual_points or 0.0) for wl in tot_l)
-            ppg = (tot_pts / len(tot_l)) if tot_l else 0.0
-
         p = player_map.get(p_id)
         pos = p.default_position if p and p.default_position else "FLEX"
-        player_pre_metrics[p_id] = (pos, ppg, tot_pts, p_id)
+        baseline = POSITION_BASELINES.get(pos, 9.8)
+
+        pre_all = sorted(
+            [wl for wl in lineups if 1 <= wl.week < effective_start_week],
+            key=lambda x: x.week,
+        )
+        pre_l = [wl for wl in pre_all if _has_played_week(wl)]
+
+        if pre_l:
+            target_all = pre_all
+            target_played = pre_l
+            elapsed_wks = elapsed_window_weeks
+        else:
+            target_all = sorted(
+                [wl for wl in lineups if wl.week >= 1],
+                key=lambda x: x.week,
+            )
+            target_played = [wl for wl in target_all if _has_played_week(wl)]
+            elapsed_wks = elapsed_season_weeks
+
+        tot_pts = sum(float(wl.actual_points or 0.0) for wl in target_played)
+        n_played = len(target_played)
+
+        # 1. Elapsed Season Pace (penalizes sitting on waivers / missing weeks)
+        season_pace = tot_pts / max(elapsed_wks, n_played, 1)
+
+        # 2. Bayesian Regressed PPG (shrinks 1-2 game flukes toward replacement baseline)
+        regressed_ppg = (
+            (tot_pts + 3.0 * baseline) / (n_played + 3.0)
+            if n_played > 0
+            else 0.0
+        )
+
+        # 3. ESPN Projected Points Proxy (depth chart role & forward expectation)
+        proj_vals = [
+            float(wl.projected_points or 0.0)
+            for wl in target_all
+            if float(wl.projected_points or 0.0) > 0.5
+        ]
+        if proj_vals:
+            recent_slice = proj_vals[-3:]
+            recent_proj = sum(recent_slice) / len(recent_slice)
+            season_proj = sum(proj_vals) / len(proj_vals)
+            proj_ppg = 0.65 * recent_proj + 0.35 * season_proj
+        else:
+            proj_ppg = regressed_ppg
+
+        if n_played == 0 and not proj_vals:
+            composite_score = 0.0
+        else:
+            composite_score = (
+                0.35 * season_pace
+                + 0.30 * regressed_ppg
+                + 0.35 * proj_ppg
+            )
+
+        bucket_pos = "WR" if pos == "FLEX" else pos
+        player_pre_metrics[p_id] = (bucket_pos, composite_score, tot_pts, p_id)
 
     by_pos: dict[str, list[tuple[int, float, float, int]]] = defaultdict(list)
-    for p_id, (pos, ppg, tot_pts, _) in player_pre_metrics.items():
-        by_pos[pos].append((p_id, ppg, tot_pts, p_id))
+    for p_id, (pos, comp_score, tot_pts, _) in player_pre_metrics.items():
+        by_pos[pos].append((p_id, comp_score, tot_pts, p_id))
 
     ranks: dict[int, int] = {}
     for _pos, p_list in by_pos.items():
