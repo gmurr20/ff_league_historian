@@ -410,6 +410,7 @@ def _build_future_draft_data(
         from backend.services.trades_service import (
             _has_played_week,
             compute_positional_ranks,
+            compute_tier_ranks,
             get_tier_info,
         )
 
@@ -441,6 +442,9 @@ def _build_future_draft_data(
             pos_ranks = compute_positional_ranks(
                 ref_season_year, max_season_wk + 1, p_lineups, p_map
             )
+            tier_ranks = compute_tier_ranks(
+                ref_season_year, max_season_wk + 1, p_lineups, p_map
+            )
 
             pos_order = {"QB": 1, "RB": 2, "WR": 3, "TE": 4, "FLEX": 5, "D/ST": 6, "K": 7}
 
@@ -462,14 +466,15 @@ def _build_future_draft_data(
                     if pos == "PICK":
                         continue
                     rk = pos_ranks.get(wl.player_id)
-                    _, tier_lbl = get_tier_info(rk)
-                    if rk is not None and rk <= 3:
+                    t_rk = tier_ranks.get(wl.player_id)
+                    _, tier_lbl = get_tier_info(t_rk)
+                    if t_rk is not None and t_rk <= 3:
                         tier_num = 1
-                    elif rk is not None and rk <= 8:
+                    elif t_rk is not None and t_rk <= 8:
                         tier_num = 2
-                    elif rk is not None and rk <= 16:
+                    elif t_rk is not None and t_rk <= 16:
                         tier_num = 3
-                    elif rk is not None and rk <= 24:
+                    elif t_rk is not None and t_rk <= 24:
                         tier_num = 4
                     else:
                         tier_num = 5
@@ -500,6 +505,7 @@ def _build_future_draft_data(
                 roster_items.sort(
                     key=lambda x: (
                         pos_order.get(x["default_position"], 99),
+                        x["tier"],
                         x["positional_rank"] if x["positional_rank"] is not None else 999,
                         -x["ppg"],
                     )

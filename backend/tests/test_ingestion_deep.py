@@ -887,12 +887,12 @@ def test_week_zero_and_playoff_bye_roster_persistence(db_session):
     assert bye_lineup.player_id == 9003
     assert float(bye_lineup.actual_points) == 24.6
 
-    # 3. Verify composite positional tier ranking:
+    # 3. Verify positional ranking (PPG on games played) & composite tier ranking:
     # A full-season WR1 with high projected points (~19.5) ranks #1 ahead of a
     # 2-week spike WR who put up 0.0 in his 3rd week with low projected points (~6.5).
     from backend.models.lineup import WeeklyLineup
     from backend.models.player import Player
-    from backend.services.trades_service import compute_positional_ranks
+    from backend.services.trades_service import compute_positional_ranks, compute_tier_ranks
 
     stud_wr = Player(espn_player_id=9101, full_name="Stud WR", default_position="WR", pro_team="CIN")
     spike_wr = Player(espn_player_id=9102, full_name="Spike WR", default_position="WR", pro_team="NYJ")
@@ -949,8 +949,11 @@ def test_week_zero_and_playoff_bye_roster_persistence(db_session):
         ],
     }
     ranks = compute_positional_ranks(2025, 7, p_lineups, p_map)
+    tier_ranks = compute_tier_ranks(2025, 7, p_lineups, p_map)
     assert ranks[9101] == 1
     assert ranks[9102] == 2
+    assert tier_ranks[9101] == 1
+    assert tier_ranks[9102] == 2
 
 
 

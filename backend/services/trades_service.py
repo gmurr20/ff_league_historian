@@ -96,7 +96,44 @@ def compute_positional_ranks(
     player_lineups: dict[tuple[int, int], list[WeeklyLineup]],
     player_map: dict[int, Player],
 ) -> dict[int, int]:
-    """Calculate 1-based positional rank for all players in the season.
+    """Calculate 1-based positional rank based purely on PPG in games played."""
+    player_pre_metrics: dict[int, tuple[str, float, float, int]] = {}
+    for (s_yr, p_id), lineups in player_lineups.items():
+        if s_yr != season_year:
+            continue
+        p = player_map.get(p_id)
+        pos = p.default_position if p and p.default_position else "FLEX"
+        pre_l = [wl for wl in lineups if 1 <= wl.week < effective_start_week and _has_played_week(wl)]
+        if pre_l:
+            tot_pts = sum(float(wl.actual_points or 0.0) for wl in pre_l)
+            ppg = tot_pts / len(pre_l)
+        else:
+            all_l = [wl for wl in lineups if wl.week >= 1 and _has_played_week(wl)]
+            tot_pts = sum(float(wl.actual_points or 0.0) for wl in all_l)
+            ppg = (tot_pts / len(all_l)) if all_l else 0.0
+        bucket_pos = "WR" if pos == "FLEX" else pos
+        player_pre_metrics[p_id] = (bucket_pos, ppg, tot_pts, p_id)
+
+    by_pos: dict[str, list[tuple[int, float, float, int]]] = defaultdict(list)
+    for p_id, (pos, ppg, tot_pts, _) in player_pre_metrics.items():
+        by_pos[pos].append((p_id, ppg, tot_pts, p_id))
+
+    ranks: dict[int, int] = {}
+    for _pos, p_list in by_pos.items():
+        p_list.sort(key=lambda x: (-x[1], -x[2], x[3]))
+        for r, (p_id, _, _, _) in enumerate(p_list, 1):
+            ranks[p_id] = r
+
+    return ranks
+
+
+def compute_tier_ranks(
+    season_year: int,
+    effective_start_week: int,
+    player_lineups: dict[tuple[int, int], list[WeeklyLineup]],
+    player_map: dict[int, Player],
+) -> dict[int, int]:
+    """Calculate 1-based composite tier rank for all players in the season.
 
     Combines three signals to prevent 1-2 week waiver spikes from inflating into Tier 1:
       1. Elapsed Season Pace (total points / elapsed scored weeks in window)
@@ -342,7 +379,7 @@ def _evaluate_trade(
         else:
             effective_start_week = trade_week + 1
 
-    # Positional rankings for effective trade week
+    # Positional rankings (PPG on games played) & Tier rankings (composite score)
     if ranks_cache is None:
         ranks_cache = {}
     if (trade.season_year, effective_start_week) not in ranks_cache:
@@ -350,6 +387,12 @@ def _evaluate_trade(
             trade.season_year, effective_start_week, player_lineups, player_map
         )
     season_ranks = ranks_cache[(trade.season_year, effective_start_week)]
+    tier_cache_key = (trade.season_year, -effective_start_week)
+    if tier_cache_key not in ranks_cache:
+        ranks_cache[tier_cache_key] = compute_tier_ranks(
+            trade.season_year, effective_start_week, player_lineups, player_map
+        )
+    season_tier_ranks = ranks_cache[tier_cache_key]
 
     # Scored post-trade weeks count & season horizon
     season_weeks = sorted([w for (y, w) in scored_weeks if y == trade.season_year and w >= effective_start_week])
@@ -564,7 +607,8 @@ def _evaluate_trade(
                 )
                 pos_mult = POS_MULTIPLIER.get(drafted_player_pos, 1.0)
                 dp_rank = season_ranks.get(dp.player_id)
-                dp_tier_mult, dp_tier_label = get_tier_info(dp_rank)
+                dp_tier_rank = season_tier_ranks.get(dp.player_id)
+                dp_tier_mult, dp_tier_label = get_tier_info(dp_tier_rank)
                 dp_effective_ppg = pre_trade_ppg if pre_dp_lineups else season_ppg
                 dp_vorp_baseline = POSITION_BASELINES.get(drafted_player_pos, 9.8)
                 dp_vorp_per_game = round(max(0.0, dp_effective_ppg - dp_vorp_baseline), 2)
@@ -741,7 +785,8 @@ def _evaluate_trade(
         ]
 
         pos_rank = season_ranks.get(item.player_id) if item.player_id else None
-        tier_mult, tier_label = get_tier_info(pos_rank)
+        tier_rank = season_tier_ranks.get(item.player_id) if item.player_id else None
+        tier_mult, tier_label = get_tier_info(tier_rank)
         effective_ppg = pre_trade_ppg if pre_p_lineups else season_ppg
         vorp_baseline = POSITION_BASELINES.get(player_pos, 9.8)
         vorp_per_game = round(max(0.0, effective_ppg - vorp_baseline), 2)
@@ -1110,7 +1155,7 @@ def _evaluate_trade(
                     d_pts = (b_pts * 0.30) + held_pts + flip_pts + ir_penalty
                     w_depth_a += d_pts
                     pos_mult = POS_MULTIPLIER.get(a["default_position"], 1.0)
-                    tier_mult, _ = get_tier_info(a.get("positional_rank"))
+                    tier_mult, _ = get_tier_info(season_tier_ranks.get(a["player_id"]))
                     stud_factor = 1.15 if a.get("is_stud") else 1.0
                     fit_mult_a = asset_fit_map.get((a["player_id"], prop_team.id), 1.0)
                     if a["asset_type"] == "PLAYER":
@@ -1172,7 +1217,7 @@ def _evaluate_trade(
                     d_pts = (b_pts * 0.30) + held_pts + flip_pts + ir_penalty
                     w_depth_b += d_pts
                     pos_mult = POS_MULTIPLIER.get(a["default_position"], 1.0)
-                    tier_mult, _ = get_tier_info(a.get("positional_rank"))
+                    tier_mult, _ = get_tier_info(season_tier_ranks.get(a["player_id"]))
                     stud_factor = 1.15 if a.get("is_stud") else 1.0
                     fit_mult_b = asset_fit_map.get((a["player_id"], acc_team.id), 1.0)
                     if a["asset_type"] == "PLAYER":
