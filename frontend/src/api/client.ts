@@ -8,6 +8,9 @@ import type {
   TradeDetail,
   TransactionsSummaryResponse,
   DraftsResponse,
+  SideBetsResponse,
+  SideBetCreatePayload,
+  SideBetUpdatePayload,
 } from '@/types/api';
 
 export type TradeAdminDraftPickInput = {
@@ -242,6 +245,86 @@ export async function restoreTradeAdmin(
   });
 }
 
+export async function fetchSideBets(
+  season?: number | string | null,
+  week?: number | null,
+  bustCache = false
+): Promise<SideBetsResponse> {
+  const params = new URLSearchParams();
+  if (season !== undefined) {
+    params.set('season', season !== null ? String(season) : 'all');
+  }
+  if (week != null) {
+    params.set('week', String(week));
+  }
+  if (bustCache) {
+    params.set('_t', String(Date.now()));
+  }
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return request<SideBetsResponse>(
+    `/api/v1/side-bets${query}`,
+    bustCache ? { cache: 'no-store' } : {}
+  );
+}
+
+export async function createSideBetAdmin(
+  password: string,
+  payload: SideBetCreatePayload
+): Promise<{ message: string; bet_id: number; bet_uuid: string }> {
+  return request<{ message: string; bet_id: number; bet_uuid: string }>('/api/v1/side-bets', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Admin-Password': password,
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateSideBetAdmin(
+  password: string,
+  betId: number,
+  payload: SideBetUpdatePayload
+): Promise<{ message: string; bet_id: number }> {
+  return request<{ message: string; bet_id: number }>(`/api/v1/side-bets/${betId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Admin-Password': password,
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteSideBetAdmin(
+  password: string,
+  betId: number
+): Promise<{ message: string; bet_id: number }> {
+  return request<{ message: string; bet_id: number }>(`/api/v1/side-bets/${betId}`, {
+    method: 'DELETE',
+    headers: {
+      'X-Admin-Password': password,
+    },
+  });
+}
+
+export async function triggerLiveScoreSyncAdmin(
+  password: string,
+  week?: number | null
+): Promise<{ message: string; status: string; season_year: number | null; week_range: string | null; records_processed: number }> {
+  return request<{ message: string; status: string; season_year: number | null; week_range: string | null; records_processed: number }>(
+    '/api/v1/admin/sync-live',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Admin-Password': password,
+      },
+      body: JSON.stringify(week != null ? { week } : {}),
+    }
+  );
+}
+
 export const apiClient = {
   fetchHealth,
   fetchMeta,
@@ -257,6 +340,11 @@ export const apiClient = {
   createTradeAdmin,
   deleteTradeAdmin,
   restoreTradeAdmin,
+  fetchSideBets,
+  createSideBetAdmin,
+  updateSideBetAdmin,
+  deleteSideBetAdmin,
+  triggerLiveScoreSyncAdmin,
 };
 
 export default apiClient;

@@ -3,7 +3,7 @@ PYTHON ?= $(shell if [ -f $(VENV)/bin/python3 ]; then echo $(VENV)/bin/python3; 
 RUFF ?= $(shell if [ -f $(VENV)/bin/ruff ]; then echo $(VENV)/bin/ruff; else which ruff; fi)
 PYTEST ?= $(shell if [ -f $(VENV)/bin/pytest ]; then echo $(VENV)/bin/pytest; else which pytest; fi)
 
-.PHONY: help install lint test seed backfill backfill-live sync-weekly build check run-api run-ui dev
+.PHONY: help install lint test seed backfill backfill-live sync-weekly sync-live build check run-api run-ui dev
 
 help:
 	@echo "Fantasy Football League Historian — Developer Commands"
@@ -15,6 +15,7 @@ help:
 	@echo "  make backfill      - Run historical ESPN backfill job from stored snapshots (--from-snapshots)"
 	@echo "  make backfill-live - Pull live ESPN league data into local DB using .env credentials"
 	@echo "  make sync-weekly   - Run active-season rolling weekly cron sync"
+	@echo "  make sync-live     - Run lightweight 10-minute active-week live score & boxscore sync"
 	@echo "  make run-api       - Start Flask REST API server on http://localhost:5001"
 	@echo "  make run-ui        - Start Vite Vue 3 PWA dev server on http://localhost:5173"
 	@echo "  make dev           - Start both Flask API (5001) and Vite UI (5173) together"
@@ -51,6 +52,9 @@ backfill-live:
 
 sync-weekly:
 	$(PYTHON) -m backend.jobs.sync_weekly
+
+sync-live:
+	$(PYTHON) -m backend.jobs.sync_live_scores
 
 run-api:
 	$(PYTHON) -m backend.app

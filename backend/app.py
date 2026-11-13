@@ -23,6 +23,7 @@ from backend.routes import (
     hall_of_fame_bp,
     media_bp,
     meta_bp,
+    side_bets_bp,
     standings_bp,
     trades_bp,
     transactions_bp,
@@ -60,6 +61,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     app.register_blueprint(transactions_bp, url_prefix="/api/v1")
     app.register_blueprint(media_bp, url_prefix="/api/v1")
     app.register_blueprint(drafts_bp, url_prefix="/api/v1")
+    app.register_blueprint(side_bets_bp, url_prefix="/api/v1")
     app.register_blueprint(admin_bp, url_prefix="/api/v1")
 
     # Cache-Control hook for successful GET requests

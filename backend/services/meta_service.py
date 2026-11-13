@@ -101,6 +101,11 @@ def get_meta(session: Session) -> dict[str, Any]:
         .filter(SyncRun.run_type == "WEEKLY_CRON", SyncRun.status == "SUCCESS")
         .scalar()
     )
+    last_live_sync = (
+        session.query(func.max(SyncRun.completed_at))
+        .filter(SyncRun.run_type == "LIVE_SCORES", SyncRun.status == "SUCCESS")
+        .scalar()
+    )
     latest_run = session.query(SyncRun).order_by(SyncRun.started_at.desc(), SyncRun.id.desc()).first()
 
     last_sync = {
@@ -109,6 +114,9 @@ def get_meta(session: Session) -> dict[str, Any]:
         ),
         "last_weekly_sync_at": (
             last_weekly_sync.isoformat().replace("+00:00", "Z") if last_weekly_sync else None
+        ),
+        "last_live_sync_at": (
+            last_live_sync.isoformat().replace("+00:00", "Z") if last_live_sync else None
         ),
         "last_sync_status": latest_run.status if latest_run else None,
     }

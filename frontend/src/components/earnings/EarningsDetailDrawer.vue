@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { EarningsLeaderboardEntry, ManagerSeasonBreakdown } from '@/types/api';
+import type { EarningsLeaderboardEntry, ManagerSeasonBreakdown, ManagerSideBetReceipt } from '@/types/api';
 import SwipeDrawer from '@/components/ui/SwipeDrawer.vue';
 import TeamAvatar from '@/components/ui/TeamAvatar.vue';
 
@@ -61,6 +61,61 @@ const displayedBounties = computed(() => {
   );
   return [...list].sort((a, b) => b.week - a.week);
 });
+
+const sideBetsCash = computed(() => {
+  if (props.isSingleSeason && currentSeasonItem.value) {
+    return currentSeasonItem.value.side_bets_cash ?? props.entry?.side_bets_cash ?? 0;
+  }
+  return props.entry?.side_bets_cash ?? 0;
+});
+
+const sideBetsRecordLabel = computed(() => {
+  const wins = props.isSingleSeason && currentSeasonItem.value
+    ? (currentSeasonItem.value.side_bets_wins ?? props.entry?.side_bets_wins_count ?? 0)
+    : (props.entry?.side_bets_wins_count ?? 0);
+  const losses = props.isSingleSeason && currentSeasonItem.value
+    ? (currentSeasonItem.value.side_bets_losses ?? props.entry?.side_bets_losses_count ?? 0)
+    : (props.entry?.side_bets_losses_count ?? 0);
+  const pushes = props.isSingleSeason && currentSeasonItem.value
+    ? (currentSeasonItem.value.side_bets_pushes ?? props.entry?.side_bets_pushes_count ?? 0)
+    : (props.entry?.side_bets_pushes_count ?? 0);
+  if (wins === 0 && losses === 0 && pushes === 0) return '0W-0L';
+  return pushes > 0 ? `${wins}W-${losses}L-${pushes}P` : `${wins}W-${losses}L`;
+});
+
+const displayedSideBetReceipts = computed<ManagerSideBetReceipt[]>(() => {
+  const list = (
+    props.isSingleSeason && currentSeasonItem.value && currentSeasonItem.value.side_bet_receipts
+      ? currentSeasonItem.value.side_bet_receipts
+      : props.entry?.side_bet_receipts ?? []
+  );
+  return [...list].sort((a, b) => b.season_year - a.season_year || b.week - a.week);
+});
+
+function formatCash(amount: number | undefined | null, decimals = 2): string {
+  const val = amount ?? 0;
+  if (val < 0) {
+    return `-$${Math.abs(val).toFixed(decimals)}`;
+  }
+  return `$${val.toFixed(decimals)}`;
+}
+
+function formatSignedCash(amount: number | undefined | null, decimals = 0): string {
+  const val = amount ?? 0;
+  if (val > 0) {
+    return `+$${val.toFixed(decimals)}`;
+  }
+  if (val < 0) {
+    return `-$${Math.abs(val).toFixed(decimals)}`;
+  }
+  return `$0`;
+}
+
+function formatSpread(spread: number | undefined | null): string {
+  const val = spread ?? 0;
+  if (val === 0) return 'PK';
+  return val > 0 ? `+${val}` : `${val}`;
+}
 </script>
 
 <template>
@@ -115,14 +170,21 @@ const displayedBounties = computed(() => {
         </div>
 
         <div class="text-right shrink-0">
-          <span class="text-xs sm:text-sm font-mono font-black text-emerald-400 bg-emerald-950/80 border border-emerald-800/80 px-2.5 py-1 rounded-lg tabular-nums shadow-sm">
-            ${{ entry.total_earnings.toFixed(2) }}
+          <span
+            class="text-xs sm:text-sm font-mono font-black px-2.5 py-1 rounded-lg tabular-nums shadow-sm border"
+            :class="
+              entry.total_earnings < 0
+                ? 'text-rose-400 bg-rose-950/80 border-rose-800/80'
+                : 'text-emerald-400 bg-emerald-950/80 border-emerald-800/80'
+            "
+          >
+            {{ formatCash(entry.total_earnings, 2) }}
           </span>
         </div>
       </div>
 
       <!-- Financial Category Breakdown Strip -->
-      <div class="grid grid-cols-3 gap-2">
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <div class="rounded-lg bg-slate-900/80 border border-slate-800/80 p-2.5 text-center">
           <span class="text-[10px] text-slate-400 uppercase font-mono font-bold block">Wins Cash</span>
           <div class="text-xs sm:text-sm font-bold font-mono text-slate-200 tabular-nums mt-0.5">
@@ -140,6 +202,25 @@ const displayedBounties = computed(() => {
           </div>
           <span class="text-[10px] text-slate-500 font-mono">
             {{ entry.weekly_high_scores_count + entry.weekly_high_score_losses_count }} Bounties
+          </span>
+        </div>
+
+        <div class="rounded-lg bg-slate-900/80 border border-slate-800/80 p-2.5 text-center">
+          <span class="text-[10px] text-slate-400 uppercase font-mono font-bold block">Side Bets</span>
+          <div
+            class="text-xs sm:text-sm font-bold font-mono tabular-nums mt-0.5"
+            :class="
+              sideBetsCash > 0
+                ? 'text-emerald-400'
+                : sideBetsCash < 0
+                ? 'text-rose-400'
+                : 'text-slate-400'
+            "
+          >
+            {{ formatSignedCash(sideBetsCash, 0) }}
+          </div>
+          <span class="text-[10px] text-slate-500 font-mono">
+            {{ sideBetsRecordLabel }}
           </span>
         </div>
 
@@ -238,6 +319,85 @@ const displayedBounties = computed(() => {
         </div>
       </div>
 
+      <!-- ITEMIZE EACH SIDE BET -->
+      <div class="rounded-xl border border-slate-800 bg-[#0b101b] overflow-hidden shadow-md">
+        <div class="flex items-center justify-between px-3.5 py-2.5 bg-slate-900/90 border-b border-slate-800/80">
+          <h4 class="text-xs font-mono font-black uppercase tracking-wider text-slate-200">
+            Side Bets ({{ displayedSideBetReceipts.length }})
+          </h4>
+          <span
+            class="text-[11px] font-mono font-bold tabular-nums"
+            :class="
+              sideBetsCash > 0
+                ? 'text-emerald-400'
+                : sideBetsCash < 0
+                ? 'text-rose-400'
+                : 'text-slate-400'
+            "
+          >
+            {{ formatSignedCash(sideBetsCash, 0) }} Net
+          </span>
+        </div>
+
+        <div v-if="displayedSideBetReceipts.length > 0" class="divide-y divide-slate-800/60 p-2 sm:p-2.5 space-y-1.5">
+          <div
+            v-for="sb in displayedSideBetReceipts"
+            :key="`${sb.bet_id}-${sb.season_year}-${sb.week}`"
+            class="rounded-lg bg-slate-900/60 border border-slate-800/80 p-2 sm:p-2.5 flex items-center justify-between gap-2"
+          >
+            <div class="flex items-center gap-2 min-w-0 flex-wrap">
+              <span class="text-[10px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 shrink-0">
+                <template v-if="!isSingleSeason">{{ sb.season_year }} · </template>Wk {{ sb.week }}
+              </span>
+
+              <span class="text-xs font-bold text-slate-200 truncate">
+                {{ sb.title || `vs. ${sb.opponent_label}` }}
+              </span>
+
+              <span class="text-[10px] font-mono text-slate-400 shrink-0">
+                ({{ formatSpread(sb.spread_applied) }})
+              </span>
+
+              <span class="text-[10px] font-mono text-slate-500 tabular-nums shrink-0">
+                {{ sb.team_side_points.toFixed(1) }}–{{ sb.opponent_side_points.toFixed(1) }}
+              </span>
+            </div>
+
+            <div class="flex items-center gap-1.5 shrink-0 font-mono">
+              <span
+                class="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border"
+                :class="
+                  sb.result === 'WIN'
+                    ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                    : sb.result === 'LOSS'
+                    ? 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                    : 'bg-slate-800 text-slate-400 border-slate-700'
+                "
+              >
+                {{ sb.result === 'WIN' ? 'WON' : sb.result === 'LOSS' ? 'LOST' : 'PUSH' }}
+              </span>
+
+              <span
+                class="text-xs font-bold tabular-nums min-w-[36px] text-right"
+                :class="
+                  sb.amount > 0
+                    ? 'text-emerald-400'
+                    : sb.amount < 0
+                    ? 'text-rose-400'
+                    : 'text-slate-400'
+                "
+              >
+                {{ formatSignedCash(sb.amount, 0) }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="p-5 text-center text-xs font-mono text-slate-500">
+          No side bets recorded for this franchise.
+        </div>
+      </div>
+
       <!-- ALL-TIME SEASON BREAKDOWN (When viewing career all-time) -->
       <div v-if="!isSingleSeason && sortedBreakdown.length > 0" class="space-y-2 pt-1">
         <h4 class="text-xs uppercase font-mono font-black tracking-wider text-slate-300 px-1">
@@ -260,12 +420,21 @@ const displayedBounties = computed(() => {
                 </span>
               </div>
 
-              <div class="text-right font-mono text-xs font-bold text-emerald-400 tabular-nums">
-                ${{ item.total_earnings.toFixed(2) }}
+              <div
+                class="text-right font-mono text-xs font-bold tabular-nums"
+                :class="
+                  item.total_earnings > 0
+                    ? 'text-emerald-400'
+                    : item.total_earnings < 0
+                    ? 'text-rose-400'
+                    : 'text-slate-400'
+                "
+              >
+                {{ formatCash(item.total_earnings, 2) }}
               </div>
             </div>
 
-            <div class="grid grid-cols-4 gap-1.5 text-[11px] font-mono border-t border-slate-800/60 pt-1.5 text-slate-400">
+            <div class="grid grid-cols-5 gap-1.5 text-[11px] font-mono border-t border-slate-800/60 pt-1.5 text-slate-400">
               <div>
                 <span class="text-[9px] uppercase text-slate-500 block">Wins</span>
                 <span class="text-slate-200 font-bold">${{ item.weekly_wins_cash.toFixed(0) }}</span>
@@ -276,6 +445,22 @@ const displayedBounties = computed(() => {
                 <span class="text-[9px] uppercase text-slate-500 block">Bounties</span>
                 <span class="text-emerald-400 font-bold">${{ item.weekly_bonus_cash.toFixed(0) }}</span>
                 <span class="text-[10px] text-slate-500 ml-0.5">({{ item.bounty_receipts?.length || 0 }})</span>
+              </div>
+
+              <div>
+                <span class="text-[9px] uppercase text-slate-500 block">Bets</span>
+                <span
+                  class="font-bold"
+                  :class="
+                    (item.side_bets_cash ?? 0) > 0
+                      ? 'text-emerald-400'
+                      : (item.side_bets_cash ?? 0) < 0
+                      ? 'text-rose-400'
+                      : 'text-slate-600'
+                  "
+                >
+                  {{ formatSignedCash(item.side_bets_cash, 0) }}
+                </span>
               </div>
 
               <div>

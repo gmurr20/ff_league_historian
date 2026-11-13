@@ -183,13 +183,15 @@ def init_db(target_engine: Engine | None = None) -> None:
             pass
         conn.commit()
 
-    # Seed canonical trade overrides from db/trade_overrides.json into TradeOverride table
+    # Seed canonical trade overrides and commissioner side bets into database
     try:
         from backend.jobs.parsers import sync_trade_overrides_to_db
+        from backend.services.side_bets_service import sync_side_bets_to_db
 
         factory = sessionmaker(autocommit=False, autoflush=False, bind=active_engine)
         with get_session(factory) as session:
             sync_trade_overrides_to_db(session)
+            sync_side_bets_to_db(session)
     except Exception:
         pass
 

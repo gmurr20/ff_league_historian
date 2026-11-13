@@ -8,9 +8,10 @@
 
 The system is designed as three strictly decoupled components:
 1. **Out-of-Band ESPN Ingestion Layer (`backend/jobs/`):**
-   - Two-tier ingestion pipeline:
+   - Three-tier ingestion pipeline:
      - `backend/jobs/backfill_history.py`: One-time historical backfill crawling past completed seasons (`is_completed = TRUE`), archiving raw payloads in `raw_espn_snapshots`, and supporting `--from-snapshots` for zero-network database rebuilds.
      - `backend/jobs/sync_weekly.py`: Lightweight cron job querying *only* the active season (`is_active = TRUE`) across a rolling 2-week window (`current_week - 1` and `current_week`), reconciling financial payouts against Elias stat corrections.
+     - `backend/jobs/sync_live_scores.py`: Lightweight 10-minute in-week live score poller fetching only `mBoxscore` and `mMatchupScore` for `current_week` to update live player and matchup points.
 2. **Read-Only Backend REST API (`backend/`):**
    - Flask 3 + SQLAlchemy 2.0 read-only service exposed under `/api/v1/*`.
    - Served by Gunicorn in production (`2 workers, 4 gthreads`), backed by PostgreSQL 16 (or local SQLite fallback).
@@ -105,6 +106,7 @@ All agents must verify their changes locally before handoff using the root `Make
 | `make seed` | Dev database seeder | Executes `python3 -m db.seed_dev` idempotently. |
 | `make backfill` | Offline snapshot backfill | Executes `python3 -m backend.jobs.backfill_history --from-snapshots`. |
 | `make sync-weekly` | Weekly rolling sync | Executes `python3 -m backend.jobs.sync_weekly`. |
+| `make sync-live` | 10-min live score sync | Executes `python3 -m backend.jobs.sync_live_scores` for active week player & matchup scores. |
 | `make build` | Frontend production build | Executes `npm run build` inside `frontend/` (if present). |
 | `make check` | Full pipeline verification | Executes `make lint`, `make test`, and `make build`. Must be 100% green before handoff. |
 

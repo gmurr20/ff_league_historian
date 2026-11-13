@@ -30,9 +30,11 @@ export interface SyncStatus {
   last_backfill_at: string | null;
   last_weekly_sync_at: string | null;
   last_sync_status: string | null;
+  last_live_sync_at?: string | null;
 }
 
 export type SyncStatusMeta = SyncStatus;
+export type LastSyncSummary = SyncStatus;
 
 export interface MetaResponse {
   league_name: string;
@@ -56,6 +58,19 @@ export interface ManagerBountyReceipt {
   description: string;
 }
 
+export interface ManagerSideBetReceipt {
+  bet_id: number;
+  season_year: number;
+  week: number;
+  title: string;
+  opponent_label: string;
+  spread_applied: number;
+  team_side_points: number;
+  opponent_side_points: number;
+  result: "WIN" | "LOSS" | "PUSH";
+  amount: number; // +stake_amount on WIN, -stake_amount on LOSS, 0 on PUSH
+}
+
 export interface ManagerSeasonBreakdown {
   season_year: number;
   team_name: string;
@@ -71,6 +86,11 @@ export interface ManagerSeasonBreakdown {
   weekly_high_scores: number;
   weekly_high_score_losses: number;
   bounty_receipts: ManagerBountyReceipt[];
+  side_bets_cash?: number;
+  side_bets_wins?: number;
+  side_bets_losses?: number;
+  side_bets_pushes?: number;
+  side_bet_receipts?: ManagerSideBetReceipt[];
   final_standing: number | null;
   trophy: TrophyType;
 }
@@ -95,6 +115,11 @@ export interface EarningsLeaderboardEntry {
   weekly_high_scores_count: number;
   weekly_high_score_losses_count: number;
   bounty_receipts: ManagerBountyReceipt[];
+  side_bets_cash?: number;
+  side_bets_wins_count?: number;
+  side_bets_losses_count?: number;
+  side_bets_pushes_count?: number;
+  side_bet_receipts?: ManagerSideBetReceipt[];
   championships: number;
   championship_years: number[];
   is_defending_champion: boolean;
@@ -802,3 +827,114 @@ export interface DraftsResponse {
   future_draft: FutureDraftData | null;
   historical_draft: HistoricalDraftData | null;
 }
+
+// ==========================================
+// 8. Side Bets & Spread Matchups
+// ==========================================
+
+export type SideBetScoringMode = "STARTERS" | "MAX_PF" | "BENCH";
+export type SideBetWinner = "A" | "B" | "PUSH" | null;
+
+export interface SideBetPlayerEntry {
+  player_id: number;
+  full_name: string;
+  default_position: string;
+  pro_team: string;
+  headshot_url: string | null;
+  slot_position: string;
+  is_starter: boolean;
+  actual_points: number;
+  projected_points: number;
+  injury_status: string | null;
+  is_injured: boolean;
+}
+
+export interface SideBetTeamBreakdown {
+  team_id: number;
+  espn_team_id: number;
+  team_name: string;
+  team_abbrev: string | null;
+  logo_url: string | null;
+  manager_id: number;
+  manager_name: string;
+  starter_points: number;
+  projected_points: number;
+  bench_points: number;
+  optimal_points: number;
+  effective_points: number;
+  starters: SideBetPlayerEntry[];
+  bench: SideBetPlayerEntry[];
+}
+
+export interface SideBetSideSummary {
+  side_label: "A" | "B";
+  side_name: string;
+  espn_team_ids: number[];
+  teams: SideBetTeamBreakdown[];
+  raw_points: number;
+  projected_points: number;
+  bench_points: number;
+  spread_applied: number; // spread_side_a for Side A, -spread_side_a for Side B
+  adjusted_points: number; // raw_points + spread_side_a for Side A; raw_points for Side B
+  projected_adjusted_points: number;
+}
+
+export interface SideBetDetail {
+  bet_id: number;
+  bet_uuid: string;
+  season_year: number;
+  week: number;
+  title: string;
+  scoring_mode: SideBetScoringMode;
+  spread_side_a: number;
+  stake_amount: number;
+  stake_description: string;
+  is_completed: boolean;
+  is_live: boolean;
+  side_a: SideBetSideSummary;
+  side_b: SideBetSideSummary;
+  margin_vs_spread: number; // round(side_a.adjusted_points - side_b.raw_points, 2)
+  projected_margin_vs_spread: number;
+  currently_covering: SideBetWinner;
+  winning_side: SideBetWinner; // Only finalized when is_completed === true, else null
+}
+
+export interface SideBetManagerStanding {
+  manager_id: number;
+  manager_name: string;
+  team_name: string;
+  avatar_url: string | null;
+  bets_count: number;
+  wins: number;
+  losses: number;
+  pushes: number;
+  pending: number;
+  net_earnings: number;
+  total_staked: number;
+}
+
+export interface SideBetsResponse {
+  season_filter: number | null;
+  selected_week: number | null;
+  current_week: number;
+  available_weeks: number[];
+  last_live_sync_at: string | null;
+  bets: SideBetDetail[];
+  leaderboard: SideBetManagerStanding[];
+}
+
+export interface SideBetCreatePayload {
+  season_year: number;
+  week: number;
+  title?: string;
+  side_a_name?: string;
+  side_b_name?: string;
+  side_a_team_ids: number[]; // Accepts internal team_id or espn_team_id
+  side_b_team_ids: number[];
+  spread_side_a: number;
+  stake_amount?: number;
+  stake_description?: string;
+  scoring_mode?: SideBetScoringMode;
+}
+
+export type SideBetUpdatePayload = Partial<SideBetCreatePayload>;

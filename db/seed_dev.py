@@ -39,6 +39,7 @@ from backend.models import (
     Player,
     RawEspnSnapshot,
     Season,
+    SideBet,
     SyncRun,
     Team,
     Trade,
@@ -90,6 +91,9 @@ def seed_database(target_engine: Engine | None = None) -> dict[str, int]:
         # 10. Seed Financial Earnings Ledger ($10 wins, $5 ties, podium payouts)
         _seed_earnings_ledger(session, seasons, teams, matchups)
 
+        # 10b. Seed Side Bets (1v1 and 2v2 group bets with spreads & positive/negative stakes)
+        _seed_side_bets(session)
+
         # 11. Seed Raw ESPN Snapshots & Sync Runs
         _seed_raw_snapshots_and_sync_runs(session)
 
@@ -108,6 +112,7 @@ def seed_database(target_engine: Engine | None = None) -> dict[str, int]:
             "transaction_items": session.query(TransactionItem).count(),
             "trades": session.query(Trade).count(),
             "earnings_ledger": session.query(EarningsLedger).count(),
+            "side_bets": session.query(SideBet).count(),
             "raw_espn_snapshots": session.query(RawEspnSnapshot).count(),
             "sync_runs": session.query(SyncRun).count(),
         }
@@ -118,6 +123,7 @@ def seed_database(target_engine: Engine | None = None) -> dict[str, int]:
 def _clear_tables(session: Session) -> None:
     """Clear tables in reverse foreign-key dependency order."""
     session.query(SyncRun).delete()
+    session.query(SideBet).delete()
     session.query(EarningsLedger).delete()
     session.query(TradedDraftPick).delete()
     session.query(TransactionItem).delete()
@@ -1084,6 +1090,59 @@ def _seed_earnings_ledger(
         ])
 
     session.add_all(ledger_entries)
+    session.flush()
+
+
+def _seed_side_bets(session: Session) -> None:
+    """Seed realistic 1v1 and 2v2 group side bets with spreads and positive/negative stakes."""
+    bets = [
+        SideBet(
+            bet_uuid="bet-seed-2024-w05-rivalry",
+            season_year=2024,
+            week=5,
+            title="East Coast Blood Feud",
+            side_a_name="Archer Assassins",
+            side_b_name="Baker's Dozen",
+            side_a_espn_team_ids=[1],
+            side_b_espn_team_ids=[2],
+            spread_side_a=Decimal("-3.50"),
+            stake_amount=Decimal("20.00"),
+            stake_description="$20 Venmo",
+            scoring_mode="STARTERS",
+            is_deleted=False,
+        ),
+        SideBet(
+            bet_uuid="bet-seed-2024-w06-tagteam",
+            season_year=2024,
+            week=6,
+            title="2v2 Division Tag Team",
+            side_a_name="East Contenders",
+            side_b_name="West Heavyweights",
+            side_a_espn_team_ids=[3, 4],
+            side_b_espn_team_ids=[5, 6],
+            spread_side_a=Decimal("4.50"),
+            stake_amount=Decimal("20.00"),
+            stake_description="$20 per team",
+            scoring_mode="STARTERS",
+            is_deleted=False,
+        ),
+        SideBet(
+            bet_uuid="bet-seed-2022-w10-classic",
+            season_year=2022,
+            week=10,
+            title="2022 Rivalry Classic",
+            side_a_name="Evans Elevation",
+            side_b_name="Ford Tough",
+            side_a_espn_team_ids=[5],
+            side_b_espn_team_ids=[6],
+            spread_side_a=Decimal("-2.50"),
+            stake_amount=Decimal("15.00"),
+            stake_description="$15 Side Action",
+            scoring_mode="STARTERS",
+            is_deleted=False,
+        ),
+    ]
+    session.add_all(bets)
     session.flush()
 
 

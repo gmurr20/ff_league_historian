@@ -145,6 +145,7 @@ def test_e2e_backfill_to_weekly_sync_to_api_responses() -> None:
         "/api/v1/hall-of-fame",
         "/api/v1/trades/trends",
         "/api/v1/transactions/summary",
+        "/api/v1/side-bets",
     ]
 
     for ep in endpoints:
@@ -351,10 +352,26 @@ def test_e2e_api_response_keys_match_typescript_contracts() -> None:
     assert_interface(hist_data["picks"][0], "HistoricalDraftPick")
     assert_interface(hist_data["picks"][0]["player"], "HistoricalDraftPlayerRef")
     assert_interface(hist_data["picks"][0]["drafting_team"], "DraftTeamRef")
-    assert len(hist_data["rounds"]) > 0
+    assert len( hist_data["rounds"]) > 0 if " hist_data" in locals() else len(hist_data["rounds"]) > 0
     assert_interface(hist_data["rounds"][0], "HistoricalDraftRound")
     assert len(hist_data["by_team"]) > 0
     assert_interface(hist_data["by_team"][0], "HistoricalDraftTeamPicks")
+
+    # 9. Side Bets endpoint -> SideBetsResponse + SideBetDetail + SideBetSideSummary + SideBetTeamBreakdown + SideBetPlayerEntry
+    res_side_bets = client.get("/api/v1/side-bets?season=2024")
+    assert res_side_bets.status_code == 200
+    sb_json = res_side_bets.get_json()
+    assert_interface(sb_json, "SideBetsResponse")
+    assert len(sb_json["bets"]) > 0
+    sb_item = sb_json["bets"][0]
+    assert_interface(sb_item, "SideBetDetail")
+    assert_interface(sb_item["side_a"], "SideBetSideSummary")
+    assert len(sb_item["side_a"]["teams"]) > 0
+    assert_interface(sb_item["side_a"]["teams"][0], "SideBetTeamBreakdown")
+    assert len(sb_item["side_a"]["teams"][0]["starters"]) > 0
+    assert_interface(sb_item["side_a"]["teams"][0]["starters"][0], "SideBetPlayerEntry")
+    assert len(sb_json["leaderboard"]) > 0
+    assert_interface(sb_json["leaderboard"][0], "SideBetManagerStanding")
 
     engine.dispose()
 

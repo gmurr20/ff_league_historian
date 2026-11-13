@@ -38,16 +38,35 @@ const isSeasonCompleted = computed<boolean>(() => {
 
 const singleSeasonGridCols = computed<string>(() => {
   return isSeasonCompleted.value
-    ? 'grid-cols-[20px_1fr_46px_44px_52px] sm:grid-cols-[28px_1fr_56px_64px_68px_72px]'
-    : 'grid-cols-[20px_1fr_46px_44px_52px] sm:grid-cols-[28px_1fr_64px_68px_76px]';
+    ? 'grid-cols-[18px_1fr_38px_38px_42px_48px] sm:grid-cols-[28px_1fr_54px_58px_58px_62px_72px]'
+    : 'grid-cols-[18px_1fr_38px_38px_42px_48px] sm:grid-cols-[28px_1fr_58px_60px_60px_76px]';
 });
 
 const isAllTime = computed<boolean>(() => !props.isSingleSeason);
 
 // Sort Column state
-type SortColumn = 'rank' | 'cash' | 'wins' | 'bonus' | 'podium' | 'seasons';
+type SortColumn = 'rank' | 'cash' | 'wins' | 'bonus' | 'bets' | 'podium' | 'seasons';
 const sortCol = ref<SortColumn>('cash');
 const sortAsc = ref<boolean>(false);
+
+function formatCash(amount: number | undefined | null, decimals = 0): string {
+  const val = amount ?? 0;
+  if (val < 0) {
+    return `-$${Math.abs(val).toFixed(decimals)}`;
+  }
+  return `$${val.toFixed(decimals)}`;
+}
+
+function formatSignedCash(amount: number | undefined | null, decimals = 0): string {
+  const val = amount ?? 0;
+  if (val > 0) {
+    return `+$${val.toFixed(decimals)}`;
+  }
+  if (val < 0) {
+    return `-$${Math.abs(val).toFixed(decimals)}`;
+  }
+  return `$0`;
+}
 
 function toggleSort(col: SortColumn) {
   if (col === 'podium' && props.isSingleSeason && !isSeasonCompleted.value) {
@@ -119,6 +138,11 @@ function sortList(list: EarningsLeaderboardEntry[]): EarningsLeaderboardEntry[] 
           (a.weekly_bonus_cash - b.weekly_bonus_cash ||
             a.weekly_high_scores_count + a.weekly_high_score_losses_count -
               (b.weekly_high_scores_count + b.weekly_high_score_losses_count)) * dir
+        );
+      case 'bets':
+        return (
+          ((a.side_bets_cash ?? 0) - (b.side_bets_cash ?? 0) ||
+            (a.side_bets_wins_count ?? 0) - (b.side_bets_wins_count ?? 0)) * dir
         );
       case 'podium':
         return (
@@ -199,7 +223,7 @@ const displayedFranchisesCount = computed<number>(() => {
     <!-- COLUMN HEADERS: SINGLE SEASON MODE -->
     <div
       v-if="isSingleSeason"
-      class="items-center px-2.5 sm:px-3.5 py-2 bg-slate-900/90 border-b border-slate-800/90 text-[10px] font-mono uppercase tracking-tight sm:tracking-wider text-slate-400 select-none grid"
+      class="items-center px-2 sm:px-3.5 py-2 bg-slate-900/90 border-b border-slate-800/90 text-[10px] font-mono uppercase tracking-tight sm:tracking-wider text-slate-400 select-none grid"
       :class="singleSeasonGridCols"
     >
       <button
@@ -230,6 +254,15 @@ const displayedFranchisesCount = computed<number>(() => {
         Bonus
       </button>
       <button
+        type="button"
+        class="text-right font-bold hover:text-slate-200 transition-colors"
+        :class="sortCol === 'bets' ? 'text-amber-400' : ''"
+        @click="toggleSort('bets')"
+        title="Net Side Bets Cash (+ / -)"
+      >
+        Bets
+      </button>
+      <button
         v-if="isSeasonCompleted"
         type="button"
         class="hidden sm:block text-right font-bold hover:text-slate-200 transition-colors"
@@ -252,7 +285,7 @@ const displayedFranchisesCount = computed<number>(() => {
     <!-- COLUMN HEADERS: ALL-TIME CAREER MODE -->
     <div
       v-else
-      class="grid grid-cols-[20px_1fr_44px_56px_60px] sm:grid-cols-[28px_1fr_56px_64px_68px_72px_76px] items-center px-2.5 sm:px-3.5 py-2 bg-slate-900/90 border-b border-slate-800/90 text-[10px] font-mono uppercase tracking-tight sm:tracking-wider text-slate-400 select-none"
+      class="grid grid-cols-[20px_1fr_44px_56px_60px] sm:grid-cols-[28px_1fr_52px_58px_58px_62px_68px_76px] items-center px-2.5 sm:px-3.5 py-2 bg-slate-900/90 border-b border-slate-800/90 text-[10px] font-mono uppercase tracking-tight sm:tracking-wider text-slate-400 select-none"
     >
       <button
         type="button"
@@ -280,6 +313,15 @@ const displayedFranchisesCount = computed<number>(() => {
         title="Career High Score & Loser Bounties"
       >
         Bonus
+      </button>
+      <button
+        type="button"
+        class="hidden sm:block text-right font-bold hover:text-slate-200 transition-colors"
+        :class="sortCol === 'bets' ? 'text-amber-400' : ''"
+        @click="toggleSort('bets')"
+        title="Career Side Bets Net Cash (+ / -)"
+      >
+        Bets
       </button>
       <button
         type="button"
@@ -360,7 +402,7 @@ const displayedFranchisesCount = computed<number>(() => {
           <!-- ROW: SINGLE SEASON MODE -->
           <div
             v-if="isSingleSeason"
-            class="items-center px-2.5 sm:px-3.5 py-2.5 grid"
+            class="items-center px-2 sm:px-3.5 py-2.5 grid"
             :class="singleSeasonGridCols"
           >
             <!-- Rank -->
@@ -442,6 +484,22 @@ const displayedFranchisesCount = computed<number>(() => {
               </span>
             </div>
 
+            <!-- Side Bets Cash -->
+            <div class="text-right font-mono tabular-nums">
+              <span
+                class="text-xs sm:text-sm font-bold"
+                :class="
+                  (row.entry.side_bets_cash ?? 0) > 0
+                    ? 'text-emerald-400'
+                    : (row.entry.side_bets_cash ?? 0) < 0
+                    ? 'text-rose-400'
+                    : 'text-slate-600'
+                "
+              >
+                {{ formatSignedCash(row.entry.side_bets_cash, 0) }}
+              </span>
+            </div>
+
             <!-- Podium Cash (Hidden on mobile; Only after season is completed) -->
             <div v-if="isSeasonCompleted" class="hidden sm:block text-right font-mono tabular-nums">
               <span
@@ -452,13 +510,19 @@ const displayedFranchisesCount = computed<number>(() => {
               </span>
             </div>
 
-            <!-- Total Season Cash (Prominent Emerald) -->
+            <!-- Total Season Cash (Prominent Emerald or Coral if negative) -->
             <div class="text-right font-mono tabular-nums">
               <span
                 class="text-xs sm:text-sm font-black"
-                :class="row.entry.total_earnings > 0 ? 'text-emerald-400' : 'text-slate-600'"
+                :class="
+                  row.entry.total_earnings > 0
+                    ? 'text-emerald-400'
+                    : row.entry.total_earnings < 0
+                    ? 'text-rose-400'
+                    : 'text-slate-600'
+                "
               >
-                ${{ row.entry.total_earnings.toFixed(0) }}
+                {{ formatCash(row.entry.total_earnings, 0) }}
               </span>
             </div>
           </div>
@@ -466,7 +530,7 @@ const displayedFranchisesCount = computed<number>(() => {
           <!-- ROW: ALL-TIME CAREER MODE -->
           <div
             v-else
-            class="grid grid-cols-[20px_1fr_44px_56px_60px] sm:grid-cols-[28px_1fr_56px_64px_68px_72px_76px] items-center px-2.5 sm:px-3.5 py-2.5"
+            class="grid grid-cols-[20px_1fr_44px_56px_60px] sm:grid-cols-[28px_1fr_52px_58px_58px_62px_68px_76px] items-center px-2.5 sm:px-3.5 py-2.5"
           >
             <!-- Rank -->
             <div
@@ -522,7 +586,7 @@ const displayedFranchisesCount = computed<number>(() => {
                     <span class="hidden xs:inline">DEFENDING</span> CHAMP
                   </span>
                 </div>
-                <div class="flex items-center gap-1.5 text-[10px] text-slate-400 leading-tight mt-0.5 min-w-0">
+                <div class="flex items-center gap-1.5 text-[10px] text-slate-400 leading-tight mt-0.5 min-w-0 flex-wrap">
                   <span v-if="row.entry.team_name && row.entry.team_name !== row.entry.display_name" class="truncate">{{ row.entry.display_name }}</span>
                   <span v-if="row.entry.team_name && row.entry.team_name !== row.entry.display_name" class="text-slate-600 shrink-0">·</span>
                   <span
@@ -534,6 +598,19 @@ const displayedFranchisesCount = computed<number>(() => {
                   <template v-if="inactiveFilter === 'all' && row.entry.is_active && activeRankMap.get(row.entry.manager_id)">
                     <span class="text-slate-600 shrink-0">·</span>
                     <span class="font-mono text-[9.5px] text-emerald-400/90 font-medium shrink-0">#{{ activeRankMap.get(row.entry.manager_id) }} Active</span>
+                  </template>
+                  <template v-if="(row.entry.side_bets_cash ?? 0) !== 0">
+                    <span class="sm:hidden text-slate-600 shrink-0">·</span>
+                    <span
+                      class="sm:hidden font-mono text-[9px] font-bold px-1 py-0.2 rounded shrink-0"
+                      :class="
+                        (row.entry.side_bets_cash ?? 0) > 0
+                          ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                          : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                      "
+                    >
+                      {{ formatSignedCash(row.entry.side_bets_cash, 0) }} Bets
+                    </span>
                   </template>
                 </div>
               </div>
@@ -556,6 +633,22 @@ const displayedFranchisesCount = computed<number>(() => {
                 :class="row.entry.weekly_bonus_cash > 0 ? 'text-amber-400' : 'text-slate-600'"
               >
                 ${{ row.entry.weekly_bonus_cash.toFixed(0) }}
+              </span>
+            </div>
+
+            <!-- Career Side Bets Cash (Hidden on mobile) -->
+            <div class="hidden sm:block text-right font-mono tabular-nums">
+              <span
+                class="text-xs sm:text-sm font-bold"
+                :class="
+                  (row.entry.side_bets_cash ?? 0) > 0
+                    ? 'text-emerald-400'
+                    : (row.entry.side_bets_cash ?? 0) < 0
+                    ? 'text-rose-400'
+                    : 'text-slate-600'
+                "
+              >
+                {{ formatSignedCash(row.entry.side_bets_cash, 0) }}
               </span>
             </div>
 
@@ -600,13 +693,19 @@ const displayedFranchisesCount = computed<number>(() => {
               </span>
             </div>
 
-            <!-- Career Total Bankroll (Prominent Emerald) -->
+            <!-- Career Total Bankroll (Prominent Emerald or Coral if negative) -->
             <div class="text-right font-mono tabular-nums">
               <span
                 class="text-xs sm:text-sm font-black"
-                :class="row.entry.total_earnings > 0 ? 'text-emerald-400' : 'text-slate-600'"
+                :class="
+                  row.entry.total_earnings > 0
+                    ? 'text-emerald-400'
+                    : row.entry.total_earnings < 0
+                    ? 'text-rose-400'
+                    : 'text-slate-600'
+                "
               >
-                ${{ row.entry.total_earnings.toFixed(0) }}
+                {{ formatCash(row.entry.total_earnings, 0) }}
               </span>
             </div>
           </div>

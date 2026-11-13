@@ -50,6 +50,14 @@ The backend is strictly divided into two distinct responsibilities:
 - **Offseason Behavior:** If no season has `is_active = TRUE`, exits immediately in under 1 second as a no-op.
 - **Season Completion:** When the final playoff week completes, marks `is_completed = TRUE`, `is_active = FALSE`, computes podium payouts (1st, 2nd, 3rd), and transitions the season cleanly.
 
+### 3.3 Workflow C: 10-Minute Live In-Week Score Sync (`backend/jobs/sync_live_scores.py`)
+- **Trigger:** Scheduled every 10 minutes on NFL game days (`*/10 * * * 0,1,4,6`) or manually via `POST /api/v1/admin/sync-live`.
+- **Target:** **Only** `current_week` of the active season (`is_active = TRUE`).
+- **Behaviors:**
+  - Makes a single lightweight ESPN request (`views=["mBoxscore", "mMatchupScore"]`) for `scoring_period_id = current_week`.
+  - Updates `matchups` and `weekly_lineups` for `current_week` without fetching transactions, communications, drafts, or media assets, and without reconciling `earnings_ledger`.
+  - Exits immediately with `status="NOOP_OFFSEASON"` and zero network calls during the offseason.
+
 ---
 
 ## 4. Flask API Conventions (`backend/routes/` & `backend/services/`)
@@ -62,6 +70,8 @@ The backend is strictly divided into two distinct responsibilities:
   - `backend/routes/hall_of_fame.py` (`/api/v1/hall-of-fame`)
   - `backend/routes/trades.py` (`/api/v1/trades/trends`)
   - `backend/routes/transactions.py` (`/api/v1/transactions/summary`)
+  - `backend/routes/side_bets.py` (`/api/v1/side-bets`)
+  - `backend/routes/admin.py` (`/api/v1/admin/*`)
 - **Caching Headers:** Add `Cache-Control: public, max-age=60` to API responses to allow fast browser/PWA caching while preventing stale financial/standings data.
 - **Error Responses:** Standard JSON `{ "error": "NOT_FOUND", "message": "Season 1999 not found" }` with appropriate HTTP status codes (400, 404, 500).
 

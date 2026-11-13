@@ -39,11 +39,12 @@
   padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
   ```
-- **Navigation:** Bottom navigation bar with 4 primary tabs:
+- **Navigation:** Bottom navigation bar with 5 primary tabs:
   1. **Standings** (Current & historical records, All-Play, Luck index)
-  2. **Earnings** (Financial bankroll, weekly vs. podium breakdown)
+  2. **Earnings** (Segmented `Prize Standings` / `Side Bets` / `Commish` tabs; negative currency formatted as `-$20` in `text-rose-400`, positive side bet net cash as `+$20` in `text-emerald-400`)
   3. **Hall of Fame** (Championship banners & Pokémon Elite 4 victory spotlight)
   4. **Trades** (Trade network, realized post-trade starter points, and Waivers & Activity transaction log)
+  5. **Drafts** (Future draft capital & historical draft boards)
 
 ---
 

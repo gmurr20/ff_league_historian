@@ -216,6 +216,14 @@ def backfill_history(
         except Exception as media_exc:
             logger.warning("Error archiving media assets during snapshot backfill: %s", media_exc)
 
+        # Synchronize persisted commissioner side bets from db/side_bets.json
+        try:
+            from backend.services.side_bets_service import sync_side_bets_to_db
+
+            sync_side_bets_to_db(session)
+        except Exception as sb_exc:
+            logger.warning("Error syncing side bets during snapshot backfill: %s", sb_exc)
+
         sync_run = SyncRun(
             run_type="BACKFILL",
             season_year=from_year,
@@ -465,6 +473,14 @@ def backfill_history(
         download_and_archive_all_league_media(session, client=espn_client)
     except Exception as media_exc:
         logger.warning("Error archiving media assets during live backfill: %s", media_exc)
+
+    # Synchronize persisted commissioner side bets from db/side_bets.json
+    try:
+        from backend.services.side_bets_service import sync_side_bets_to_db
+
+        sync_side_bets_to_db(session)
+    except Exception as sb_exc:
+        logger.warning("Error syncing side bets during live backfill: %s", sb_exc)
 
     sync_run = SyncRun(
         run_type="BACKFILL",

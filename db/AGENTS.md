@@ -17,7 +17,8 @@ The database schema supports eight primary data domains with strict referential 
 7. **`weekly_lineups`**: Weekly player-level start/bench entries (`slot_position`, `is_starter`, `actual_points`, `projected_points`, `weekly_stats`).
 8. **`transactions` & `transaction_items` & `trades`**: Complete transaction ledger capturing free agents, executed waivers, failed waiver bids (`WAIVER_ERROR`) with `failure_reason`, and `related_espn_transaction_id` for FAAB Bidding Wars.
 9. **`earnings_ledger`**: Financial payouts ($10 weekly win, $5 tie, 1st/2nd/3rd podium awards).
-10. **`sync_runs`**: Audit log recording ingestion runs (`run_type` = `'BACKFILL'` | `'WEEKLY_CRON'`, `season_year`, `week_range`, `status`, `started_at`, `completed_at`, `error_message`).
+10. **`sync_runs`**: Audit log recording ingestion runs (`run_type` = `'BACKFILL'` | `'WEEKLY_CRON'` | `'LIVE_SCORES'`, `season_year`, `week_range`, `status`, `started_at`, `completed_at`, `error_message`).
+11. **`side_bets`**: Commissioner-authored 1v1 and $N \text{ vs. } M$ group side bets keyed by canonical `espn_team_id` arrays (`side_a_espn_team_ids`, `side_b_espn_team_ids`), persisted to `db/side_bets.json` across database rebuilds, and dynamically evaluated against `weekly_lineups` and `matchups` at read time.
 
 ---
 

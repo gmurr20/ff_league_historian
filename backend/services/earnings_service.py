@@ -18,6 +18,7 @@ from backend.models.earnings import EarningsLedger
 from backend.models.manager import Manager
 from backend.models.season import Season
 from backend.models.team import Team
+from backend.services.side_bets_service import compute_manager_side_bet_rollups
 from backend.services.standings_service import _resolve_historical_accolades
 
 
@@ -58,6 +59,13 @@ def get_earnings_leaderboard(
 
     for entry in ledger_entries:
         manager_ids.add(entry.manager_id)
+
+    # Compute positive/negative side bet rollups per (manager_id, season_year)
+    side_bet_rollups = compute_manager_side_bet_rollups(
+        session, season_filter=season_filter
+    )
+    for sb_mgr_id, _ in side_bet_rollups.keys():
+        manager_ids.add(sb_mgr_id)
 
     all_managers = session.query(Manager).filter(Manager.id.in_(manager_ids)).all()
     manager_map = {m.id: m for m in all_managers}
@@ -117,6 +125,11 @@ def get_earnings_leaderboard(
         mgr_total_weekly = 0.0
         mgr_total_podium = 0.0
         mgr_total_points_title = 0.0
+        mgr_side_bets_cash = 0.0
+        mgr_side_bets_wins = 0
+        mgr_side_bets_losses = 0
+        mgr_side_bets_pushes = 0
+        mgr_side_bet_receipts: list[dict[str, Any]] = []
         mgr_weekly_wins = 0
         mgr_weekly_ties = 0
         mgr_high_scores = 0
@@ -130,6 +143,21 @@ def get_earnings_leaderboard(
         for team in teams_for_mgr:
             year = team.season_year
             entries = ledger_by_manager_season.get((mgr_id, year), [])
+            sb_rollup = side_bet_rollups.get(
+                (mgr_id, year),
+                {
+                    "side_bets_cash": 0.0,
+                    "side_bets_wins": 0,
+                    "side_bets_losses": 0,
+                    "side_bets_pushes": 0,
+                    "side_bet_receipts": [],
+                },
+            )
+            s_side_bets_cash = round(float(sb_rollup["side_bets_cash"]), 2)
+            s_side_bets_wins = int(sb_rollup["side_bets_wins"])
+            s_side_bets_losses = int(sb_rollup["side_bets_losses"])
+            s_side_bets_pushes = int(sb_rollup["side_bets_pushes"])
+            s_side_bet_receipts = list(sb_rollup["side_bet_receipts"])
 
             s_weekly = 0.0
             s_podium = 0.0
@@ -196,13 +224,18 @@ def get_earnings_leaderboard(
             s_weekly = round(s_weekly, 2)
             s_podium = round(s_podium, 2)
             s_points_title = round(s_points_title, 2)
-            s_total = round(s_weekly + s_podium + s_points_title, 2)
+            s_total = round(s_weekly + s_podium + s_points_title + s_side_bets_cash, 2)
             s_wins_cash = round(s_wins_cash, 2)
             s_bonus_cash = round(s_bonus_cash, 2)
 
             mgr_total_weekly += s_weekly
             mgr_total_podium += s_podium
             mgr_total_points_title += s_points_title
+            mgr_side_bets_cash += s_side_bets_cash
+            mgr_side_bets_wins += s_side_bets_wins
+            mgr_side_bets_losses += s_side_bets_losses
+            mgr_side_bets_pushes += s_side_bets_pushes
+            mgr_side_bet_receipts.extend(s_side_bet_receipts)
             mgr_weekly_wins += s_wins
             mgr_weekly_ties += s_ties
             mgr_high_scores += s_high_scores
@@ -235,6 +268,11 @@ def get_earnings_leaderboard(
                     "weekly_earnings": s_weekly,
                     "podium_earnings": s_podium,
                     "points_title_cash": s_points_title,
+                    "side_bets_cash": s_side_bets_cash,
+                    "side_bets_wins": s_side_bets_wins,
+                    "side_bets_losses": s_side_bets_losses,
+                    "side_bets_pushes": s_side_bets_pushes,
+                    "side_bet_receipts": s_side_bet_receipts,
                     "total_earnings": s_total,
                     "weekly_wins": s_wins,
                     "weekly_ties": s_ties,
@@ -255,8 +293,10 @@ def get_earnings_leaderboard(
         mgr_total_weekly = round(mgr_total_weekly, 2)
         mgr_total_podium = round(mgr_total_podium, 2)
         mgr_total_points_title = round(mgr_total_points_title, 2)
+        mgr_side_bets_cash = round(mgr_side_bets_cash, 2)
         mgr_total_earnings = round(
-            mgr_total_weekly + mgr_total_podium + mgr_total_points_title, 2
+            mgr_total_weekly + mgr_total_podium + mgr_total_points_title + mgr_side_bets_cash,
+            2,
         )
         latest_team = teams_for_mgr[0] if teams_for_mgr else None
 
@@ -316,6 +356,11 @@ def get_earnings_leaderboard(
                 "weekly_earnings": mgr_total_weekly,
                 "podium_earnings": mgr_total_podium,
                 "points_title_cash": mgr_total_points_title,
+                "side_bets_cash": mgr_side_bets_cash,
+                "side_bets_wins_count": mgr_side_bets_wins,
+                "side_bets_losses_count": mgr_side_bets_losses,
+                "side_bets_pushes_count": mgr_side_bets_pushes,
+                "side_bet_receipts": mgr_side_bet_receipts,
                 "weekly_wins_count": mgr_weekly_wins,
                 "weekly_ties_count": mgr_weekly_ties,
                 "weekly_wins_cash": round(mgr_wins_cash, 2),

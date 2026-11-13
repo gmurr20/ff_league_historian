@@ -434,6 +434,7 @@ def test_schema_sql_ddl_completeness() -> None:
         "draft_picks",
         "draft_settings",
         "traded_draft_picks",
+        "side_bets",
     ]
     for table in expected_tables:
         assert f"CREATE TABLE IF NOT EXISTS {table}" in ddl, f"Missing table definition: {table}"

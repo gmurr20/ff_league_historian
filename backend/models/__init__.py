@@ -17,6 +17,7 @@ from backend.models.media import MediaAsset
 from backend.models.player import Player
 from backend.models.raw_snapshot import RawEspnSnapshot
 from backend.models.season import Season
+from backend.models.side_bet import SideBet
 from backend.models.sync_run import SyncRun
 from backend.models.team import Team
 from backend.models.trade import Trade, TradeOverride
@@ -26,6 +27,7 @@ __all__ = [
     "JsonType",
     "RawEspnSnapshot",
     "Season",
+    "SideBet",
     "Manager",
     "Team",
     "Player",

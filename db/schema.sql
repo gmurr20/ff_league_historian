@@ -439,3 +439,32 @@ CREATE TABLE IF NOT EXISTS media_assets (
 CREATE INDEX IF NOT EXISTS idx_media_assets_created_at ON media_assets(created_at);
 
 COMMENT ON TABLE media_assets IS 'Locally archived binary image assets (custom logos/avatars) to bypass ESPN client-auth requirements.';
+
+-- -----------------------------------------------------------------------------
+-- 15. Side Bets (1v1 & Multi-Team Group Matchup Wagers)
+-- Commissioner-authored side bets keyed by canonical espn_team_id arrays and
+-- evaluated dynamically against weekly_lineups and matchups at read time.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS side_bets (
+    id SERIAL PRIMARY KEY,
+    bet_uuid VARCHAR(64) UNIQUE NOT NULL,
+    season_year INT NOT NULL,
+    week INT NOT NULL,
+    title VARCHAR(128) NOT NULL DEFAULT '',
+    side_a_name VARCHAR(64) NOT NULL DEFAULT 'Side A',
+    side_b_name VARCHAR(64) NOT NULL DEFAULT 'Side B',
+    side_a_espn_team_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+    side_b_espn_team_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+    spread_side_a NUMERIC(6,2) NOT NULL DEFAULT 0.00,
+    stake_amount NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+    stake_description VARCHAR(128) NOT NULL DEFAULT '',
+    scoring_mode VARCHAR(16) NOT NULL DEFAULT 'STARTERS',
+    is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_side_bets_season_week ON side_bets(season_year, week);
+
+COMMENT ON TABLE side_bets IS 'Commissioner-authored 1v1 and N vs. M group side bets with point spreads and stakes.';
+

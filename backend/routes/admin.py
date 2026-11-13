@@ -1,8 +1,9 @@
 """backend/routes/admin.py - Commissioner Administration & Manual Ingestion Triggers.
 
 Endpoints:
-  POST /api/v1/admin/backfill - Trigger historical ingestion or snapshot rebuild
-  POST /api/v1/admin/sync     - Trigger rolling weekly sync for the active season
+  POST /api/v1/admin/backfill  - Trigger historical ingestion or snapshot rebuild
+  POST /api/v1/admin/sync      - Trigger rolling weekly sync for the active season
+  POST /api/v1/admin/sync-live - Trigger lightweight live score & boxscore sync for the active week
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from flask import Blueprint, current_app, jsonify, request
 
 from backend.database import SessionLocal
 from backend.jobs.backfill_history import backfill_history
+from backend.jobs.sync_live_scores import sync_live_scores
 from backend.jobs.sync_weekly import sync_weekly
 
 admin_bp = Blueprint("admin", __name__)
@@ -101,6 +103,46 @@ def trigger_sync() -> tuple[Any, int]:
                 jsonify(
                     {
                         "status": run.status,
+                        "records_processed": run.records_processed,
+                        "started_at": run.started_at.isoformat() if run.started_at else None,
+                        "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+                    }
+                ),
+                200,
+            )
+        except Exception as e:
+            session.rollback()
+            return (
+                jsonify({"error": "INTERNAL_ERROR", "message": str(e)}),
+                500,
+            )
+
+
+@admin_bp.route("/admin/sync-live", methods=["POST"])
+def trigger_sync_live() -> tuple[Any, int]:
+    """Execute lightweight in-week live score and player boxscore sync for the active season."""
+    if not _is_admin_authenticated():
+        return jsonify({"error": "UNAUTHORIZED", "message": "Invalid commissioner password"}), 401
+
+    body = request.get_json(silent=True) or {}
+    week = body.get("week")
+    league_id = body.get("league_id")
+
+    session_factory = current_app.config.get("SESSION_FACTORY", SessionLocal)
+    with session_factory() as session:
+        try:
+            run = sync_live_scores(
+                session=session,
+                week=week,
+                league_id=league_id,
+            )
+            session.commit()
+            return (
+                jsonify(
+                    {
+                        "status": run.status,
+                        "season_year": run.season_year,
+                        "week_range": run.week_range,
                         "records_processed": run.records_processed,
                         "started_at": run.started_at.isoformat() if run.started_at else None,
                         "completed_at": run.completed_at.isoformat() if run.completed_at else None,
