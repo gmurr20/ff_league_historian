@@ -7,19 +7,14 @@ import SideBetDetailDrawer from '@/components/earnings/SideBetDetailDrawer.vue';
 import TeamAvatar from '@/components/ui/TeamAvatar.vue';
 import LoadingState from '@/components/ui/LoadingState.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
-import { RefreshCw, Radio, Trophy, Swords } from 'lucide-vue-next';
+import { Trophy, Swords } from 'lucide-vue-next';
 
 const props = defineProps<{
   seasonYear: number | null;
 }>();
 
-const emit = defineEmits<{
-  (e: 'refresh-earnings'): void;
-}>();
-
 const sideBetsData = ref<SideBetsResponse | null>(null);
 const loading = ref<boolean>(false);
-const refreshing = ref<boolean>(false);
 const error = ref<string | null>(null);
 
 // Selected week filter: null means "All Weeks"
@@ -48,17 +43,6 @@ const hasAnyLiveBets = computed<boolean>(() => {
   return (sideBetsData.value?.bets ?? []).some((b) => b.is_live);
 });
 
-const formattedLastSync = computed<string>(() => {
-  const raw = sideBetsData.value?.last_live_sync_at;
-  if (!raw) return 'Auto-syncs every 10m on game days';
-  const dt = new Date(raw);
-  if (Number.isNaN(dt.getTime())) return 'Live boxscore sync enabled';
-  const diffMin = Math.max(0, Math.round((Date.now() - dt.getTime()) / 60000));
-  if (diffMin < 1) return 'Synced just now';
-  if (diffMin < 60) return `Synced ${diffMin}m ago`;
-  return `Last sync ${dt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
-});
-
 function formatSignedCash(amount: number): string {
   if (amount > 0) return `+$${amount.toFixed(0)}`;
   if (amount < 0) return `-$${Math.abs(amount).toFixed(0)}`;
@@ -66,9 +50,7 @@ function formatSignedCash(amount: number): string {
 }
 
 async function loadSideBets(bustCache = false) {
-  if (bustCache) {
-    refreshing.value = true;
-  } else {
+  if (!bustCache) {
     loading.value = true;
   }
   error.value = null;
@@ -88,7 +70,6 @@ async function loadSideBets(bustCache = false) {
     error.value = err instanceof Error ? err.message : 'Failed to load side bets.';
   } finally {
     loading.value = false;
-    refreshing.value = false;
   }
 }
 
@@ -109,11 +90,6 @@ function openBetDetail(bet: SideBetDetail) {
   detailDrawerOpen.value = true;
 }
 
-function handleManualRefresh() {
-  loadSideBets(true);
-  emit('refresh-earnings');
-}
-
 defineExpose({
   refresh: () => loadSideBets(true),
 });
@@ -121,47 +97,12 @@ defineExpose({
 
 <template>
   <div class="space-y-4">
-    <!-- Top Live Status & Week Filter Bar -->
-    <div class="rounded-2xl border border-slate-800/90 bg-[#0b101b] p-3 space-y-3 shadow-md">
-      <!-- Live Sync Status Row -->
-      <div class="flex items-center justify-between gap-2 flex-wrap">
-        <div class="flex items-center gap-2 min-w-0">
-          <span
-            class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider border shrink-0"
-            :class="
-              hasAnyLiveBets
-                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
-                : 'bg-slate-800/90 text-slate-400 border-slate-700/80'
-            "
-          >
-            <span
-              class="w-1.5 h-1.5 rounded-full"
-              :class="hasAnyLiveBets ? 'bg-emerald-400 animate-ping' : 'bg-slate-500'"
-            ></span>
-            <Radio class="w-3 h-3" />
-            <span>{{ hasAnyLiveBets ? 'Live Scoring Active' : 'Boxscore Feed' }}</span>
-          </span>
-
-          <span class="text-[11px] font-mono text-slate-400 truncate">
-            {{ formattedLastSync }}
-          </span>
-        </div>
-
-        <div class="flex items-center gap-1.5 shrink-0">
-          <button
-            type="button"
-            class="h-8 px-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-xs font-mono font-semibold text-slate-200 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-            :disabled="refreshing || loading"
-            @click="handleManualRefresh"
-          >
-            <RefreshCw class="w-3.5 h-3.5 text-emerald-400" :class="refreshing ? 'animate-spin' : ''" />
-            <span>{{ refreshing ? 'Syncing...' : 'Refresh Live Scores' }}</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- Week Selector Pill Strip (Single-Season Mode Only) -->
-      <div v-if="seasonYear !== null && sortedAvailableWeeks.length > 0" class="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
+    <!-- Week Selector Pill Strip (Single-Season Mode Only) -->
+    <div
+      v-if="seasonYear !== null && sortedAvailableWeeks.length > 0"
+      class="rounded-2xl border border-slate-800/90 bg-[#0b101b] p-2.5 shadow-md"
+    >
+      <div class="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
         <button
           type="button"
           class="px-3 py-1.5 rounded-lg text-xs font-mono font-bold whitespace-nowrap transition-colors cursor-pointer shrink-0 border"
