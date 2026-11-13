@@ -196,14 +196,6 @@ const tugSegments = computed<{
   };
 });
 
-// Where Side A's combined reach (Base + Spread if Side A is underdog) lands relative to 50%
-const sideATotalReachPct = computed(() => {
-  if (underdogSide.value === 'A') {
-    return tugSegments.value.sideAPct + tugSegments.value.spreadPct;
-  }
-  return tugSegments.value.sideAPct;
-});
-
 const coverSummaryLabel = computed<string>(() => {
   const sideAName = getSideDisplayName(props.bet.side_a);
   const sideBName = getSideDisplayName(props.bet.side_b);
@@ -561,29 +553,19 @@ const displayTitle = computed<string>(() => {
 
           <!-- Recessed Bar Track -->
           <div class="h-4 rounded-full bg-slate-950 p-0.5 border border-slate-800/90 shadow-inner flex items-stretch overflow-hidden relative">
-            <!-- Segment 1A: Side A Actual Points Scored (Solid Vibrant Fill) -->
+            <!-- Segment 1A: Side A Actual Points Scored (Solid Vibrant Sky Fill) -->
             <div
               v-if="tugSegments.sideAActualPct > 0"
-              class="h-full transition-all duration-500 first:rounded-l-full"
-              :class="[
-                activeLeader === 'A'
-                  ? 'bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]'
-                  : 'bg-gradient-to-r from-sky-600 via-sky-500 to-cyan-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]',
-                tugSegments.sideARemProjPct > 0 ? 'border-r-2 border-white/80' : '',
-              ]"
+              class="h-full transition-all duration-500 first:rounded-l-full bg-gradient-to-r from-sky-600 via-sky-500 to-cyan-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]"
+              :class="tugSegments.sideARemProjPct > 0 ? 'border-r-2 border-white/85' : ''"
               :style="{ width: `${tugSegments.sideAActualPct}%` }"
               :title="`${getSideDisplayName(bet.side_a)} Actual Scored: ${bet.side_a.raw_points.toFixed(2)} pts`"
             ></div>
 
-            <!-- Segment 1B: Side A Projected Points (Fainter Translucent Fill) -->
+            <!-- Segment 1B: Side A Remaining Projected Points (Fainter Translucent Sky Fill) -->
             <div
               v-if="tugSegments.sideARemProjPct > 0"
-              class="h-full transition-all duration-500 first:rounded-l-full"
-              :class="
-                activeLeader === 'A'
-                  ? 'bg-emerald-400/25 border-y border-emerald-400/30'
-                  : 'bg-sky-400/25 border-y border-sky-400/30'
-              "
+              class="h-full transition-all duration-500 first:rounded-l-full bg-sky-400/25 border-y border-sky-400/35"
               :style="{ width: `${tugSegments.sideARemProjPct}%` }"
               :title="`${getSideDisplayName(bet.side_a)} Remaining Projected: ${Math.max(0, sideALiveProjBase - bet.side_a.raw_points).toFixed(1)} pts`"
             ></div>
@@ -605,29 +587,19 @@ const displayTitle = computed<string>(() => {
               :title="`Spread Cushion: +${spreadAbs.toFixed(1)} pts`"
             ></div>
 
-            <!-- Segment 3A: Side B Projected Points (Fainter Translucent Fill toward center) -->
+            <!-- Segment 3A: Side B Remaining Projected Points (Fainter Translucent Indigo Fill toward center) -->
             <div
               v-if="tugSegments.sideBRemProjPct > 0"
-              class="h-full transition-all duration-500 last:rounded-r-full"
-              :class="
-                activeLeader === 'B'
-                  ? 'bg-emerald-400/25 border-y border-emerald-400/30'
-                  : 'bg-indigo-400/25 border-y border-indigo-400/30'
-              "
+              class="h-full transition-all duration-500 last:rounded-r-full bg-indigo-400/25 border-y border-indigo-400/35"
               :style="{ width: `${tugSegments.sideBRemProjPct}%` }"
               :title="`${getSideDisplayName(bet.side_b)} Remaining Projected: ${Math.max(0, sideBLiveProjBase - bet.side_b.raw_points).toFixed(1)} pts`"
             ></div>
 
-            <!-- Segment 3B: Side B Actual Points Scored (Solid Vibrant Fill anchored on right edge) -->
+            <!-- Segment 3B: Side B Actual Points Scored (Solid Vibrant Indigo Fill anchored on right edge) -->
             <div
               v-if="tugSegments.sideBActualPct > 0"
-              class="h-full transition-all duration-500 last:rounded-r-full"
-              :class="[
-                activeLeader === 'B'
-                  ? 'bg-gradient-to-l from-emerald-600 via-emerald-500 to-teal-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]'
-                  : 'bg-gradient-to-l from-indigo-600 via-indigo-500 to-violet-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]',
-                tugSegments.sideBRemProjPct > 0 ? 'border-l-2 border-white/80' : '',
-              ]"
+              class="h-full transition-all duration-500 last:rounded-r-full bg-gradient-to-l from-indigo-600 via-indigo-500 to-violet-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]"
+              :class="tugSegments.sideBRemProjPct > 0 ? 'border-l-2 border-white/85' : ''"
               :style="{ width: `${tugSegments.sideBActualPct}%` }"
               :title="`${getSideDisplayName(bet.side_b)} Actual Scored: ${bet.side_b.raw_points.toFixed(2)} pts`"
             ></div>
@@ -637,17 +609,17 @@ const displayTitle = computed<string>(() => {
         <!-- Subtle Scale Caption under the bar: Actual vs Projected Totals -->
         <div class="flex items-center justify-between gap-2 flex-wrap text-[10px] font-mono text-slate-400">
           <span>
-            Actual: <strong class="text-slate-200">{{ sideAEffectiveActual.toFixed(1) }}</strong>
+            Actual: <strong class="text-slate-200">{{ bet.side_a.raw_points.toFixed(1) }}</strong>
             <span class="text-slate-600 mx-1">·</span>
-            Proj: <strong class="text-sky-300">{{ sideAEffectiveLiveProj.toFixed(1) }}</strong>
+            Proj{{ underdogSide === 'A' ? ' (w/ Spread)' : '' }}: <strong class="text-sky-300">{{ sideAEffectiveLiveProj.toFixed(1) }}</strong>
           </span>
-          <span v-if="hasSomeActualPoints && !bet.is_completed" class="text-[9.5px] text-slate-500 uppercase tracking-wider font-bold">
+          <span v-if="!bet.is_completed" class="text-[9.5px] text-slate-500 uppercase tracking-wider font-bold">
             Solid = Actual · Shaded = Proj
           </span>
           <span class="ml-auto">
-            Actual: <strong class="text-slate-200">{{ sideBEffectiveActual.toFixed(1) }}</strong>
+            Actual: <strong class="text-slate-200">{{ bet.side_b.raw_points.toFixed(1) }}</strong>
             <span class="text-slate-600 mx-1">·</span>
-            Proj: <strong class="text-indigo-300">{{ sideBEffectiveLiveProj.toFixed(1) }}</strong>
+            Proj{{ underdogSide === 'B' ? ' (w/ Spread)' : '' }}: <strong class="text-indigo-300">{{ sideBEffectiveLiveProj.toFixed(1) }}</strong>
           </span>
         </div>
       </div>

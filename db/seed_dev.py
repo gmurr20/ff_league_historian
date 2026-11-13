@@ -617,9 +617,10 @@ def _seed_lineups(
     lineups: list[WeeklyLineup] = []
 
     for year in [2022, 2023, 2024]:
-        max_weeks = 8 if year == 2024 else 17
+        max_weeks = 9 if year == 2024 else 17
         for week in range(1, max_weeks + 1):
             is_live_week = (year == 2024 and week == 8)
+            is_upcoming_week = (year == 2024 and week == 9)
             for espn_id in range(1, 9):
                 team = teams[(year, espn_id)]
 
@@ -637,7 +638,9 @@ def _seed_lineups(
                 slots = ["QB", "RB", "WR", "TE", "FLEX"]
                 for s_idx, (slot, pid) in enumerate(zip(slots, starter_pids, strict=False)):
                     proj = Decimal(f"{18.00 + ((pid % 5) * 2.5) + (espn_id * 0.8):.2f}")
-                    if is_live_week:
+                    if is_upcoming_week:
+                        pts = Decimal("0.00")
+                    elif is_live_week:
                         # First 3 starters have played/are playing; last 2 starters haven't kicked off yet (0.00 actual)
                         if s_idx < 3:
                             pts = Decimal(f"{16.50 + ((pid % 7) * 2.2) + (espn_id * 1.1):.2f}")
@@ -982,7 +985,7 @@ def _seed_earnings_ledger(
     # 2. Weekly high score ($10.00) and weekly high score in a loss ($10.00)
     matchups_by_year_week: dict[tuple[int, int], list[Matchup]] = defaultdict(list)
     for m in matchups:
-        if m.matchup_type == "REGULAR":
+        if m.matchup_type == "REGULAR" and m.is_completed:
             matchups_by_year_week[(m.season_year, m.week)].append(m)
 
     for (year, week), wk_matchups in matchups_by_year_week.items():
@@ -1112,6 +1115,21 @@ def _seed_side_bets(session: Session) -> None:
     """Seed realistic 1v1 and 2v2 group side bets with spreads and positive/negative stakes."""
     bets = [
         SideBet(
+            bet_uuid="bet-seed-2024-w09-upcoming-showdown",
+            season_year=2024,
+            week=9,
+            title="High School Showdown",
+            side_a_name="Archer + Baker",
+            side_b_name="Ford + Rachel",
+            side_a_espn_team_ids=[1, 2],
+            side_b_espn_team_ids=[6, 8],
+            spread_side_a=Decimal("46.50"),
+            stake_amount=Decimal("10.00"),
+            stake_description="$10 per team",
+            scoring_mode="STARTERS",
+            is_deleted=False,
+        ),
+        SideBet(
             bet_uuid="bet-seed-2024-w08-live-showdown",
             season_year=2024,
             week=8,
@@ -1120,7 +1138,7 @@ def _seed_side_bets(session: Session) -> None:
             side_b_name="Evans + Green Hill",
             side_a_espn_team_ids=[1, 3],
             side_b_espn_team_ids=[5, 7],
-            spread_side_a=Decimal("18.50"),
+            spread_side_a=Decimal("28.50"),
             stake_amount=Decimal("20.00"),
             stake_description="$20 per team",
             scoring_mode="STARTERS",
