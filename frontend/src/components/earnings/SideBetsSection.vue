@@ -162,10 +162,10 @@ defineExpose({
         v-if="sideBetsData.leaderboard && sideBetsData.leaderboard.length > 0"
         class="rounded-2xl border border-slate-800/90 bg-[#0b101b] overflow-hidden shadow-lg"
       >
-        <div class="px-3.5 py-2.5 bg-slate-900/95 border-b border-slate-800/90 flex items-center justify-between gap-2">
+        <div class="px-3.5 py-2.5 bg-slate-900/95 border-b border-slate-800/90 flex items-center justify-between gap-2 flex-wrap">
           <div class="flex items-center gap-2 min-w-0">
             <Trophy class="w-4 h-4 text-amber-400 shrink-0" />
-            <h3 class="text-xs sm:text-sm font-black uppercase tracking-tight text-slate-100 truncate">
+            <h3 class="text-xs sm:text-sm font-black uppercase tracking-tight text-slate-100">
               Side Bet Net P&amp;L Leaderboard
             </h3>
           </div>
@@ -178,9 +178,9 @@ defineExpose({
           <div
             v-for="(mgr, idx) in sideBetsData.leaderboard"
             :key="mgr.manager_id"
-            class="px-3.5 py-2.5 flex items-center justify-between gap-2 hover:bg-slate-900/60 transition-colors"
+            class="px-3.5 py-2.5 flex items-center justify-between gap-2.5 hover:bg-slate-900/60 transition-colors"
           >
-            <div class="flex items-center gap-2.5 min-w-0">
+            <div class="flex items-center gap-2.5 min-w-0 flex-1">
               <span
                 class="w-5 font-mono text-xs font-black tabular-nums shrink-0"
                 :class="idx === 0 && mgr.net_earnings > 0 ? 'text-amber-400' : 'text-slate-500'"
@@ -188,11 +188,11 @@ defineExpose({
                 {{ idx + 1 }}
               </span>
               <TeamAvatar :src="mgr.avatar_url" :name="mgr.team_name" size="xs" rounded="lg" />
-              <div class="min-w-0">
-                <div class="text-xs sm:text-sm font-bold text-slate-100 truncate leading-tight">
+              <div class="min-w-0 flex-1">
+                <div class="text-xs sm:text-sm font-bold text-slate-100 break-words leading-snug">
                   {{ mgr.team_name }}
                 </div>
-                <div class="text-[10px] text-slate-400 font-mono truncate mt-0.5">
+                <div class="text-[10px] text-slate-400 font-mono break-words leading-snug mt-0.5">
                   {{ mgr.manager_name }} · {{ mgr.wins }}W-{{ mgr.losses }}L<template v-if="mgr.pushes > 0">-{{ mgr.pushes }}P</template>
                   <template v-if="mgr.pending > 0"> ({{ mgr.pending }} live)</template>
                 </div>
@@ -219,9 +219,9 @@ defineExpose({
 
       <!-- List of SideBetCard items -->
       <div v-if="filteredBets.length > 0" class="space-y-3">
-        <div class="flex items-center justify-between px-1">
+        <div class="flex items-center justify-between gap-2 flex-wrap px-1">
           <div class="flex items-center gap-1.5">
-            <Swords class="w-3.5 h-3.5 text-indigo-400" />
+            <Swords class="w-3.5 h-3.5 text-indigo-400 shrink-0" />
             <h3 class="text-xs font-mono font-black uppercase tracking-wider text-slate-300">
               {{ selectedWeekFilter ? `Week ${selectedWeekFilter} Matchups` : 'All Side Bet Matchups' }}
               ({{ filteredBets.length }})

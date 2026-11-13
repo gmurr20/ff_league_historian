@@ -73,8 +73,8 @@ const isSeasonCompleted = computed<boolean>(() => {
 const tabSubtitle = computed<string>(() => {
   if (activeTab.value === 'side-bets') {
     return isSingleSeason.value
-      ? `Season ${selectedSeason.value} 1v1 & Group Spread Matchups`
-      : 'All-Time Side Bets & Live Boxscores';
+      ? `Season ${selectedSeason.value} Side Bets`
+      : 'All-Time Side Bets';
   }
   if (activeTab.value === 'admin') {
     return 'Commissioner Side Bet Desk & Live ESPN Score Sync';

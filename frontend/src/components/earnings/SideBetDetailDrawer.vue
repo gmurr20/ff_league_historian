@@ -53,10 +53,24 @@ const drawerSubtitle = computed(() => {
   return `Season ${props.bet.season_year} · Week ${props.bet.week}${stakeStr}${modeStr}`;
 });
 
+const hasSpread = computed(() => Boolean(props.bet && Math.abs(props.bet.spread_side_a) > 0.001));
+
+const isUpcoming = computed(() => {
+  if (!props.bet) return false;
+  return !props.bet.is_completed && props.bet.side_a.raw_points === 0 && props.bet.side_b.raw_points === 0;
+});
+
+const underdogSide = computed<'A' | 'B' | null>(() => {
+  if (!props.bet || !hasSpread.value) return null;
+  return props.bet.spread_side_a > 0 ? 'A' : 'B';
+});
+
+const spreadAbs = computed(() => (props.bet ? Math.abs(props.bet.spread_side_a) : 0));
+
 const activeLeader = computed<'A' | 'B' | 'PUSH' | null>(() => {
   if (!props.bet) return null;
   if (props.bet.is_completed) return props.bet.winning_side;
-  if (props.bet.side_a.raw_points === 0 && props.bet.side_b.raw_points === 0) return null;
+  if (isUpcoming.value) return null;
   return props.bet.currently_covering;
 });
 
@@ -74,6 +88,19 @@ const coverMarginBannerText = computed(() => {
       return `${nameB} covered ${formatSpread(props.bet.side_b.spread_applied)} by +${absMargin} pts`;
     }
     return `Final Push — Exact 0.00 spread tie`;
+  }
+
+  if (isUpcoming.value) {
+    const pMargin = props.bet.projected_margin_vs_spread;
+    const absProj = Math.abs(pMargin);
+    if (absProj < 0.08) {
+      return hasSpread.value
+        ? `Proj: Dead even w/ ${formatSpread(props.bet.side_a.spread_applied)} spread`
+        : `Proj: Dead even`;
+    }
+    return pMargin > 0
+      ? `Proj: ${nameA} covers ${formatSpread(props.bet.side_a.spread_applied)} by +${absProj.toFixed(1)} pts`
+      : `Proj: ${nameB} covers ${formatSpread(props.bet.side_b.spread_applied)} by +${absProj.toFixed(1)} pts`;
   }
 
   if (props.bet.currently_covering === 'A') {
@@ -161,7 +188,7 @@ function getTeamInitials(team: SideBetTeamBreakdown): string {
     <div v-if="bet" class="space-y-4 pb-6">
       <!-- Top Scoreboard & Spread Adjustment Summary Card -->
       <div class="rounded-2xl border border-slate-800 bg-[#0b101b] p-3.5 space-y-3 shadow-lg">
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <!-- Side A Summary -->
           <div
             class="rounded-xl p-3 border transition-colors"
@@ -171,7 +198,7 @@ function getTeamInitials(team: SideBetTeamBreakdown): string {
                 : 'bg-slate-900/75 border-slate-800'
             "
           >
-            <div class="flex items-center justify-between gap-1.5">
+            <div class="flex items-center justify-between gap-1.5 flex-wrap">
               <span class="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">
                 Side A · {{ bet.side_a.teams.length }} {{ bet.side_a.teams.length === 1 ? 'Team' : 'Teams' }}
               </span>
@@ -181,7 +208,7 @@ function getTeamInitials(team: SideBetTeamBreakdown): string {
                   bet.side_a.spread_applied < 0
                     ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/35'
                     : bet.side_a.spread_applied > 0
-                    ? 'bg-amber-500/15 text-amber-300 border-amber-500/35'
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/45'
                     : 'bg-slate-800 text-slate-400 border-slate-700'
                 "
               >
@@ -189,11 +216,11 @@ function getTeamInitials(team: SideBetTeamBreakdown): string {
               </span>
             </div>
 
-            <div class="text-xs sm:text-sm font-bold text-slate-100 truncate mt-1">
+            <div class="text-xs sm:text-sm font-bold text-slate-100 break-words leading-snug mt-1">
               {{ getSideDisplayName(bet.side_a) }}
             </div>
 
-            <div class="mt-2 flex items-baseline justify-between gap-2 font-mono tabular-nums">
+            <div class="mt-2 flex items-baseline justify-between gap-2 flex-wrap font-mono tabular-nums">
               <div>
                 <div
                   class="text-lg sm:text-xl font-black leading-none"
@@ -204,11 +231,18 @@ function getTeamInitials(team: SideBetTeamBreakdown): string {
                 <div class="text-[10px] text-slate-500 mt-0.5">Raw Starter Pts</div>
               </div>
 
-              <div v-if="bet.spread_side_a !== 0" class="text-right">
-                <div class="text-xs sm:text-sm font-bold text-slate-200 leading-none">
-                  {{ bet.side_a.adjusted_points.toFixed(2) }}
+              <div class="text-right">
+                <div class="text-xs sm:text-sm font-bold text-slate-300 leading-none">
+                  {{ bet.side_a.projected_points.toFixed(1) }}
                 </div>
-                <div class="text-[10px] text-slate-500 mt-0.5">w/ Spread</div>
+                <div class="text-[10px] text-slate-500 mt-0.5">Projected</div>
+              </div>
+
+              <div v-if="underdogSide === 'A'" class="text-right">
+                <div class="text-xs sm:text-sm font-bold text-amber-300 leading-none">
+                  {{ (isUpcoming ? bet.side_a.projected_points + spreadAbs : bet.side_a.raw_points + spreadAbs).toFixed(2) }}
+                </div>
+                <div class="text-[10px] text-amber-400/80 mt-0.5">w/ +{{ spreadAbs.toFixed(1) }}</div>
               </div>
             </div>
           </div>
@@ -222,7 +256,7 @@ function getTeamInitials(team: SideBetTeamBreakdown): string {
                 : 'bg-slate-900/75 border-slate-800'
             "
           >
-            <div class="flex items-center justify-between gap-1.5">
+            <div class="flex items-center justify-between gap-1.5 flex-wrap">
               <span class="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">
                 Side B · {{ bet.side_b.teams.length }} {{ bet.side_b.teams.length === 1 ? 'Team' : 'Teams' }}
               </span>
@@ -232,7 +266,7 @@ function getTeamInitials(team: SideBetTeamBreakdown): string {
                   bet.side_b.spread_applied < 0
                     ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/35'
                     : bet.side_b.spread_applied > 0
-                    ? 'bg-amber-500/15 text-amber-300 border-amber-500/35'
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/45'
                     : 'bg-slate-800 text-slate-400 border-slate-700'
                 "
               >
@@ -240,11 +274,11 @@ function getTeamInitials(team: SideBetTeamBreakdown): string {
               </span>
             </div>
 
-            <div class="text-xs sm:text-sm font-bold text-slate-100 truncate mt-1">
+            <div class="text-xs sm:text-sm font-bold text-slate-100 break-words leading-snug mt-1">
               {{ getSideDisplayName(bet.side_b) }}
             </div>
 
-            <div class="mt-2 flex items-baseline justify-between gap-2 font-mono tabular-nums">
+            <div class="mt-2 flex items-baseline justify-between gap-2 flex-wrap font-mono tabular-nums">
               <div>
                 <div
                   class="text-lg sm:text-xl font-black leading-none"
@@ -261,23 +295,30 @@ function getTeamInitials(team: SideBetTeamBreakdown): string {
                 </div>
                 <div class="text-[10px] text-slate-500 mt-0.5">Projected</div>
               </div>
+
+              <div v-if="underdogSide === 'B'" class="text-right">
+                <div class="text-xs sm:text-sm font-bold text-amber-300 leading-none">
+                  {{ (isUpcoming ? bet.side_b.projected_points + spreadAbs : bet.side_b.raw_points + spreadAbs).toFixed(2) }}
+                </div>
+                <div class="text-[10px] text-amber-400/80 mt-0.5">w/ +{{ spreadAbs.toFixed(1) }}</div>
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- Cover Verdict Strip -->
+        <!-- Cover Verdict Strip (wraps cleanly on mobile) -->
         <div
-          class="rounded-xl px-3 py-2 border flex items-center justify-between gap-2 text-xs font-mono"
+          class="rounded-xl px-3 py-2 border flex items-center justify-between gap-2 flex-wrap text-xs font-mono"
           :class="
             activeLeader
               ? 'bg-emerald-950/30 border-emerald-500/35 text-emerald-300'
               : 'bg-slate-900 border-slate-800 text-slate-300'
           "
         >
-          <div class="flex items-center gap-1.5 min-w-0">
-            <Trophy v-if="bet.is_completed && activeLeader" class="w-3.5 h-3.5 text-amber-400 shrink-0" />
-            <Flame v-else class="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-            <span class="font-bold truncate">{{ coverMarginBannerText }}</span>
+          <div class="flex items-start gap-1.5 min-w-0 flex-1">
+            <Trophy v-if="bet.is_completed && activeLeader" class="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+            <Flame v-else class="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+            <span class="font-bold break-words leading-snug">{{ coverMarginBannerText }}</span>
           </div>
 
           <span
@@ -301,7 +342,7 @@ function getTeamInitials(team: SideBetTeamBreakdown): string {
           "
           @click="activeMobileSide = 'A'"
         >
-          <span class="truncate">{{ getSideDisplayName(bet.side_a) }}</span>
+          <span class="break-words text-left leading-tight">{{ getSideDisplayName(bet.side_a) }}</span>
           <span class="font-mono text-[11px] text-emerald-400 shrink-0">
             {{ bet.side_a.raw_points.toFixed(1) }}
           </span>
@@ -317,7 +358,7 @@ function getTeamInitials(team: SideBetTeamBreakdown): string {
           "
           @click="activeMobileSide = 'B'"
         >
-          <span class="truncate">{{ getSideDisplayName(bet.side_b) }}</span>
+          <span class="break-words text-left leading-tight">{{ getSideDisplayName(bet.side_b) }}</span>
           <span class="font-mono text-[11px] text-emerald-400 shrink-0">
             {{ bet.side_b.raw_points.toFixed(1) }}
           </span>
@@ -333,10 +374,10 @@ function getTeamInitials(team: SideBetTeamBreakdown): string {
           :class="activeMobileSide === sideItem.key ? 'block' : 'hidden sm:block'"
         >
           <!-- Side Column Header -->
-          <div class="flex items-center justify-between px-1">
+          <div class="flex items-center justify-between gap-2 flex-wrap px-1">
             <div class="flex items-center gap-1.5 min-w-0">
               <Users class="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-              <h3 class="text-xs font-mono font-black uppercase tracking-wider text-slate-200 truncate">
+              <h3 class="text-xs font-mono font-black uppercase tracking-wider text-slate-200 break-words">
                 Side {{ sideItem.key }} · {{ getSideDisplayName(sideItem.summary) }}
               </h3>
             </div>
@@ -353,18 +394,18 @@ function getTeamInitials(team: SideBetTeamBreakdown): string {
           >
             <!-- Prominent Franchise Header -->
             <div class="px-3 py-2.5 bg-slate-900/95 border-b border-slate-800/90 flex items-center justify-between gap-2">
-              <div class="flex items-center gap-2.5 min-w-0">
+              <div class="flex items-center gap-2.5 min-w-0 flex-1">
                 <TeamAvatar :src="team.logo_url" :name="team.team_name" size="sm" rounded="lg" />
-                <div class="min-w-0">
-                  <div class="flex items-center gap-1.5">
-                    <span class="text-xs sm:text-sm font-bold text-slate-100 truncate">
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <span class="text-xs sm:text-sm font-bold text-slate-100 break-words leading-snug">
                       {{ team.team_name }}
                     </span>
                     <span class="text-[9.5px] font-mono text-slate-500 uppercase">
                       ({{ getTeamInitials(team) }})
                     </span>
                   </div>
-                  <div class="text-[10px] text-slate-400 truncate">
+                  <div class="text-[10px] text-slate-400 break-words leading-snug">
                     {{ team.manager_name }}
                   </div>
                 </div>
@@ -387,7 +428,7 @@ function getTeamInitials(team: SideBetTeamBreakdown): string {
                 :key="`${team.team_id}-${player.player_id}-${player.slot_position}`"
                 class="px-3 py-2 flex items-center justify-between gap-2 hover:bg-slate-900/50 transition-colors"
               >
-                <div class="flex items-center gap-2 min-w-0">
+                <div class="flex items-center gap-2 min-w-0 flex-1">
                   <!-- Position Slot Badge -->
                   <span
                     class="w-10 text-center py-0.5 rounded text-[9.5px] font-mono font-black uppercase border shrink-0"
@@ -411,9 +452,9 @@ function getTeamInitials(team: SideBetTeamBreakdown): string {
                   </div>
 
                   <!-- Player Name, NFL Team & Injury Status -->
-                  <div class="min-w-0">
-                    <div class="flex items-center gap-1.5 min-w-0">
-                      <span class="text-xs font-bold text-slate-100 truncate">
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                      <span class="text-xs font-bold text-slate-100 break-words leading-snug">
                         {{ player.full_name }}
                       </span>
                       <span
