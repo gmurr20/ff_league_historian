@@ -737,6 +737,8 @@ def upsert_weekly_lineups_from_payload(
         if p_stats and week > 0:
             for s in p_stats:
                 if s.get("scoringPeriodId") == week:
+                    if s.get("statSplitTypeId") not in (None, 1):
+                        continue
                     if s.get("statSourceId") == 0:
                         actual_raw = s.get("appliedTotal", actual_raw)
                         if not stats:

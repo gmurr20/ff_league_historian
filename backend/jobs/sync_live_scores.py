@@ -99,7 +99,7 @@ def sync_live_scores(
 
     # 3. Single lightweight ESPN fetch (or local snapshot fallback when offline)
     espn_client = client or EspnClient(league_id=target_league_id)
-    views = ["mBoxscore", "mMatchupScore"]
+    views = ["mBoxscore", "mMatchupScore", "mRoster"]
 
     payload: dict[str, Any] | None = None
     try:

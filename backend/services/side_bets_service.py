@@ -254,6 +254,7 @@ def _build_team_breakdown(
     week_matchups: list[Matchup],
     roster_slots: dict[str, Any] | None,
     scoring_mode: str,
+    is_completed: bool = False,
 ) -> dict[str, Any]:
     """Build SideBetTeamBreakdown for a single participating franchise."""
     starters: list[dict[str, Any]] = []
@@ -351,9 +352,30 @@ def _build_team_breakdown(
 
     if starters:
         starter_points = round(sum(p["actual_points"] for p in starters), 2)
-        projected_points = round(sum(p["projected_points"] for p in starters), 2)
-        if projected_points == 0.0 and team_matchup_proj is not None:
-            projected_points = round(team_matchup_proj, 2)
+        raw_proj_sum = round(sum(p["projected_points"] for p in starters), 2)
+        if is_completed:
+            projected_points = (
+                round(team_matchup_proj, 2)
+                if raw_proj_sum == 0.0 and team_matchup_proj is not None
+                else raw_proj_sum
+            )
+        else:
+            # Live / Upcoming week:
+            # Unplayed starters (actual == 0) contribute their pre-game projection;
+            # active/scored starters contribute at least their actual points scored so far.
+            live_starter_proj = round(
+                sum(
+                    max(p["actual_points"], p["projected_points"])
+                    if p["actual_points"] > 0
+                    else p["projected_points"]
+                    for p in starters
+                ),
+                2,
+            )
+            if team_matchup_proj is not None and team_matchup_proj > 0 and raw_proj_sum == 0.0:
+                projected_points = round(max(team_matchup_proj, starter_points), 2)
+            else:
+                projected_points = max(live_starter_proj, starter_points)
         bench_points = round(sum(p["actual_points"] for p in bench), 2)
         opt_dec, _ = compute_optimal_score(lineup_models, roster_slots=roster_slots)
         optimal_points = max(round(float(opt_dec), 2), starter_points)
@@ -416,6 +438,14 @@ def _evaluate_side_bet(
     spread_side_a = round(float(bet.spread_side_a or 0.0), 2)
     stake_amount = round(float(bet.stake_amount or 0.0), 2)
 
+    # Determine is_completed from Matchup.is_completed for that season/week
+    if week_matchups:
+        is_completed = all(bool(m.is_completed) for m in week_matchups)
+    elif season is not None:
+        is_completed = bool(season.is_completed or (week < season.current_week))
+    else:
+        is_completed = False
+
     side_a_espn_ids = [int(x) for x in (bet.side_a_espn_team_ids or [])]
     side_b_espn_ids = [int(x) for x in (bet.side_b_espn_team_ids or [])]
 
@@ -426,7 +456,7 @@ def _evaluate_side_bet(
             lu_rows = lineups_by_key.get((s_year, week, t.id), [])
             side_a_teams.append(
                 _build_team_breakdown(
-                    t, lu_rows, week_matchups, roster_slots, scoring_mode
+                    t, lu_rows, week_matchups, roster_slots, scoring_mode, is_completed=is_completed
                 )
             )
 
@@ -437,7 +467,7 @@ def _evaluate_side_bet(
             lu_rows = lineups_by_key.get((s_year, week, t.id), [])
             side_b_teams.append(
                 _build_team_breakdown(
-                    t, lu_rows, week_matchups, roster_slots, scoring_mode
+                    t, lu_rows, week_matchups, roster_slots, scoring_mode, is_completed=is_completed
                 )
             )
 
@@ -474,14 +504,6 @@ def _evaluate_side_bet(
         else default_b_name
     )
     title = bet.title or f"{side_a_name} vs. {side_b_name}"
-
-    # Determine is_completed from Matchup.is_completed for that season/week
-    if week_matchups:
-        is_completed = all(bool(m.is_completed) for m in week_matchups)
-    elif season is not None:
-        is_completed = bool(season.is_completed or (week < season.current_week))
-    else:
-        is_completed = False
 
     is_live = bool(not is_completed and (side_a_raw > 0 or side_b_raw > 0))
 

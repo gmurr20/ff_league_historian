@@ -45,21 +45,8 @@ const isUpcoming = computed(() => {
   return !props.bet.is_completed && props.bet.side_a.raw_points === 0 && props.bet.side_b.raw_points === 0;
 });
 
-const isPush = computed(() => {
-  return (
-    (props.bet.is_completed && props.bet.winning_side === 'PUSH') ||
-    (!props.bet.is_completed && !isUpcoming.value && props.bet.currently_covering === 'PUSH')
-  );
-});
-
-const activeLeader = computed<'A' | 'B' | 'PUSH' | null>(() => {
-  if (props.bet.is_completed) {
-    return props.bet.winning_side;
-  }
-  if (isUpcoming.value) {
-    return null;
-  }
-  return props.bet.currently_covering;
+const hasSomeActualPoints = computed(() => {
+  return props.bet.side_a.raw_points > 0 || props.bet.side_b.raw_points > 0;
 });
 
 // Which side gets the positive (+) underdog handicap cushion
@@ -70,91 +57,146 @@ const underdogSide = computed<'A' | 'B' | null>(() => {
 
 const spreadAbs = computed(() => Math.abs(props.bet.spread_side_a));
 
-// Display-friendly "Effective Score (w/ Spread Cushion)" where the underdog gets +spreadAbs added to their score
-const sideAEffectiveScore = computed(() => {
-  if (underdogSide.value === 'A') {
-    return props.bet.side_a.raw_points + spreadAbs.value;
-  }
-  return props.bet.side_a.raw_points;
+// Live Projected Base Points (before spread) for each side:
+// When completed, uses final actual points. When upcoming/live, uses live projected points (at least actual points).
+const sideALiveProjBase = computed(() => {
+  if (props.bet.is_completed) return props.bet.side_a.raw_points;
+  return Math.max(props.bet.side_a.raw_points, props.bet.side_a.projected_points);
 });
 
-const sideBEffectiveScore = computed(() => {
-  if (underdogSide.value === 'B') {
-    return props.bet.side_b.raw_points + spreadAbs.value;
-  }
-  return props.bet.side_b.raw_points;
+const sideBLiveProjBase = computed(() => {
+  if (props.bet.is_completed) return props.bet.side_b.raw_points;
+  return Math.max(props.bet.side_b.raw_points, props.bet.side_b.projected_points);
 });
 
-const sideAEffectiveProj = computed(() => {
-  if (underdogSide.value === 'A') {
-    return props.bet.side_a.projected_points + spreadAbs.value;
-  }
-  return props.bet.side_a.projected_points;
+// Effective Totals (including underdog spread cushion):
+const sideAEffectiveActual = computed(() => {
+  return props.bet.side_a.raw_points + (underdogSide.value === 'A' ? spreadAbs.value : 0);
 });
 
-const sideBEffectiveProj = computed(() => {
-  if (underdogSide.value === 'B') {
-    return props.bet.side_b.projected_points + spreadAbs.value;
-  }
-  return props.bet.side_b.projected_points;
+const sideBEffectiveActual = computed(() => {
+  return props.bet.side_b.raw_points + (underdogSide.value === 'B' ? spreadAbs.value : 0);
 });
 
-// 3-Segment Proportional Color-Coded Tug-of-War Bar widths:
-// By anchoring 50% of the bar to the Favorite's score (scale = 2 * favoriteScore):
-// 1. If raw scores tie (A == B), the underdog's raw bar reaches 50.0% and the ENTIRE gold spread segment pushes past the 50% midline.
-// 2. If spread-adjusted scores tie (Underdog + Spread == Favorite), [Underdog + Gold Spread] lands at 50.0% right on the midline.
-// 3. If Favorite beats the spread, [Underdog + Gold Spread] falls short of 50.0% and Favorite crosses past the midline.
+const sideAEffectiveLiveProj = computed(() => {
+  return sideALiveProjBase.value + (underdogSide.value === 'A' ? spreadAbs.value : 0);
+});
+
+const sideBEffectiveLiveProj = computed(() => {
+  return sideBLiveProjBase.value + (underdogSide.value === 'B' ? spreadAbs.value : 0);
+});
+
+// Net margin vs spread based on Live Projected (when upcoming/live) or Final Actual (when completed)
+const activeTugMargin = computed(() => {
+  if (props.bet.is_completed) {
+    return props.bet.margin_vs_spread;
+  }
+  return sideAEffectiveLiveProj.value - sideBEffectiveLiveProj.value;
+});
+
+const isPush = computed(() => {
+  return (
+    (props.bet.is_completed && props.bet.winning_side === 'PUSH') ||
+    (!props.bet.is_completed && Math.abs(activeTugMargin.value) < 0.08 && hasSomeActualPoints.value)
+  );
+});
+
+// Leader based on final result (if completed) or live projected pace (if live/upcoming)
+const activeLeader = computed<'A' | 'B' | 'PUSH' | null>(() => {
+  if (props.bet.is_completed) {
+    return props.bet.winning_side;
+  }
+  if (Math.abs(activeTugMargin.value) < 0.08) {
+    return isUpcoming.value ? null : 'PUSH';
+  }
+  return activeTugMargin.value > 0 ? 'A' : 'B';
+});
+
+// 5-Segment Proportional Tug-of-War Bar widths:
+// [ Side A Actual (Solid) | Side A Rem Proj (Translucent) | Gold Spread (+X.X) | Side B Rem Proj (Translucent) | Side B Actual (Solid) ]
+// Operates on Live Projected totals during the week (and Final Actual once completed),
+// anchored so 50% of the bar = Favorite's target score.
 const tugSegments = computed<{
   sideAPct: number;
+  sideAActualPct: number;
+  sideARemProjPct: number;
   spreadPct: number;
   sideBPct: number;
+  sideBRemProjPct: number;
+  sideBActualPct: number;
 }>(() => {
   const spread = hasSpread.value ? spreadAbs.value : 0;
-  const useProj = isUpcoming.value;
-  let baseA = useProj ? props.bet.side_a.projected_points : props.bet.side_a.raw_points;
-  let baseB = useProj ? props.bet.side_b.projected_points : props.bet.side_b.raw_points;
+  const actualA = props.bet.side_a.raw_points;
+  const actualB = props.bet.side_b.raw_points;
 
-  // If both sides are 0.0 (e.g. upcoming week before projections are posted), use a 110-pt per-team baseline
-  // so the two raw bars tie at 50% and the proportional gold spread segment pushes past the 50% midline.
+  let baseA = sideALiveProjBase.value;
+  let baseB = sideBLiveProjBase.value;
+
+  // Fallback baseline if both sides have 0.0 projected and 0.0 actual
   if (baseA <= 0 && baseB <= 0) {
     const teamCount = Math.max(1, props.bet.side_a.teams.length, props.bet.side_b.teams.length);
     baseA = 110 * teamCount;
     baseB = 110 * teamCount;
   }
 
+  let sideAPct = 50;
+  let spreadPct = 0;
+  let sideBPct = 50;
+
   if (!hasSpread.value) {
     const total = baseA + baseB;
-    if (total <= 0) return { sideAPct: 50, spreadPct: 0, sideBPct: 50 };
-    const sideAPct = Math.min(92, Math.max(8, (baseA / total) * 100));
-    return {
-      sideAPct,
-      spreadPct: 0,
-      sideBPct: 100 - sideAPct,
-    };
-  }
-
-  if (underdogSide.value === 'A') {
-    // Side B is the favorite; 50% of the bar = Side B's score
+    if (total > 0) {
+      sideAPct = Math.min(92, Math.max(8, (baseA / total) * 100));
+      sideBPct = 100 - sideAPct;
+    }
+  } else if (underdogSide.value === 'A') {
+    // Side B is the favorite; 50% of the bar = Side B's live projected score
     const scale = Math.max(2 * baseB, baseA + spread, 20);
-    const spreadPct = Math.min(35, Math.max(1.8, (spread / scale) * 100));
+    spreadPct = Math.min(35, Math.max(1.8, (spread / scale) * 100));
     const rawSideAPct = (baseA / scale) * 100;
     const totalShareA = Math.min(94, Math.max(6 + spreadPct, rawSideAPct + spreadPct));
-    const sideAPct = Math.max(4, totalShareA - spreadPct);
-    const sideBPct = Math.max(4, 100 - sideAPct - spreadPct);
-    return { sideAPct, spreadPct, sideBPct };
+    sideAPct = Math.max(4, totalShareA - spreadPct);
+    sideBPct = Math.max(4, 100 - sideAPct - spreadPct);
   } else {
-    // Side A is the favorite; 50% of the bar = Side A's score
+    // Side A is the favorite; 50% of the bar = Side A's live projected score
     const scale = Math.max(2 * baseA, baseB + spread, 20);
-    const spreadPct = Math.min(35, Math.max(1.8, (spread / scale) * 100));
+    spreadPct = Math.min(35, Math.max(1.8, (spread / scale) * 100));
     const rawSideBPct = (baseB / scale) * 100;
     const totalShareB = Math.min(94, Math.max(6 + spreadPct, rawSideBPct + spreadPct));
-    const sideBPct = Math.max(4, totalShareB - spreadPct);
-    const sideAPct = Math.max(4, 100 - sideBPct - spreadPct);
-    return { sideAPct, spreadPct, sideBPct };
+    sideBPct = Math.max(4, totalShareB - spreadPct);
+    sideAPct = Math.max(4, 100 - sideBPct - spreadPct);
   }
+
+  // Split each side's bar into Actual Scored (solid) vs Remaining Projected (translucent)
+  const ratioActualA = props.bet.is_completed
+    ? 1
+    : baseA > 0
+    ? Math.min(1, Math.max(0, actualA / baseA))
+    : 0;
+  const ratioActualB = props.bet.is_completed
+    ? 1
+    : baseB > 0
+    ? Math.min(1, Math.max(0, actualB / baseB))
+    : 0;
+
+  const sideAActualPct = sideAPct * ratioActualA;
+  const sideARemProjPct = Math.max(0, sideAPct - sideAActualPct);
+
+  const sideBActualPct = sideBPct * ratioActualB;
+  const sideBRemProjPct = Math.max(0, sideBPct - sideBActualPct);
+
+  return {
+    sideAPct,
+    sideAActualPct,
+    sideARemProjPct,
+    spreadPct,
+    sideBPct,
+    sideBRemProjPct,
+    sideBActualPct,
+  };
 });
 
-// Where the underdog's combined reach (Base + Spread) lands relative to 50%
+// Where Side A's combined reach (Base + Spread if Side A is underdog) lands relative to 50%
 const sideATotalReachPct = computed(() => {
   if (underdogSide.value === 'A') {
     return tugSegments.value.sideAPct + tugSegments.value.spreadPct;
@@ -163,49 +205,37 @@ const sideATotalReachPct = computed(() => {
 });
 
 const coverSummaryLabel = computed<string>(() => {
-  const absMargin = Math.abs(props.bet.margin_vs_spread).toFixed(2);
   const sideAName = getSideDisplayName(props.bet.side_a);
   const sideBName = getSideDisplayName(props.bet.side_b);
 
   if (props.bet.is_completed) {
+    const absFinalMargin = Math.abs(props.bet.margin_vs_spread).toFixed(2);
     if (props.bet.winning_side === 'A') {
       return hasSpread.value
-        ? `${sideAName} (${formatSpread(props.bet.side_a.spread_applied)}) covered by +${absMargin} pts`
-        : `${sideAName} won by +${absMargin} pts`;
+        ? `${sideAName} (${formatSpread(props.bet.side_a.spread_applied)}) covered by +${absFinalMargin} pts`
+        : `${sideAName} won by +${absFinalMargin} pts`;
     }
     if (props.bet.winning_side === 'B') {
       return hasSpread.value
-        ? `${sideBName} (${formatSpread(props.bet.side_b.spread_applied)}) covered by +${absMargin} pts`
-        : `${sideBName} won by +${absMargin} pts`;
+        ? `${sideBName} (${formatSpread(props.bet.side_b.spread_applied)}) covered by +${absFinalMargin} pts`
+        : `${sideBName} won by +${absFinalMargin} pts`;
     }
     return `Exact Push (0.00 margin vs spread)`;
   }
 
-  if (isUpcoming.value) {
-    const pMargin = props.bet.projected_margin_vs_spread;
-    const absProjMargin = Math.abs(pMargin);
-    if (absProjMargin < 0.08) {
-      return hasSpread.value
-        ? `Projected dead even w/ spread (${sideAEffectiveProj.value.toFixed(1)} vs ${sideBEffectiveProj.value.toFixed(1)})`
-        : `Projected dead even (${props.bet.side_a.projected_points.toFixed(1)} vs ${props.bet.side_b.projected_points.toFixed(1)})`;
-    }
-    if (pMargin > 0) {
-      return `Proj: ${sideAName} covers by +${absProjMargin.toFixed(1)} pts (${sideAEffectiveProj.value.toFixed(1)} vs ${sideBEffectiveProj.value.toFixed(1)})`;
-    }
-    return `Proj: ${sideBName} covers by +${absProjMargin.toFixed(1)} pts (${sideBEffectiveProj.value.toFixed(1)} vs ${sideAEffectiveProj.value.toFixed(1)})`;
-  }
+  const pMargin = activeTugMargin.value;
+  const absProjMargin = Math.abs(pMargin);
+  const prefix = props.bet.is_live ? 'Live Proj' : 'Proj';
 
-  if (props.bet.currently_covering === 'A') {
+  if (absProjMargin < 0.08) {
     return hasSpread.value
-      ? `${sideAName} covering ${formatSpread(props.bet.side_a.spread_applied)} by +${absMargin} pts`
-      : `${sideAName} leading by +${absMargin} pts`;
+      ? `${prefix}: Dead even w/ spread (${sideAEffectiveLiveProj.value.toFixed(1)} vs ${sideBEffectiveLiveProj.value.toFixed(1)})`
+      : `${prefix}: Dead even (${sideALiveProjBase.value.toFixed(1)} vs ${sideBLiveProjBase.value.toFixed(1)})`;
   }
-  if (props.bet.currently_covering === 'B') {
-    return hasSpread.value
-      ? `${sideBName} covering ${formatSpread(props.bet.side_b.spread_applied)} by +${absMargin} pts`
-      : `${sideBName} leading by +${absMargin} pts`;
+  if (pMargin > 0) {
+    return `${prefix}: ${sideAName} covers by +${absProjMargin.toFixed(1)} pts (${sideAEffectiveLiveProj.value.toFixed(1)} vs ${sideBEffectiveLiveProj.value.toFixed(1)})`;
   }
-  return `Tied vs spread (0.00 margin)`;
+  return `${prefix}: ${sideBName} covers by +${absProjMargin.toFixed(1)} pts (${sideBEffectiveLiveProj.value.toFixed(1)} vs ${sideAEffectiveLiveProj.value.toFixed(1)})`;
 });
 
 const displayTitle = computed<string>(() => {
@@ -370,9 +400,9 @@ const displayTitle = computed<string>(() => {
             {{ bet.side_a.raw_points.toFixed(2) }}
           </div>
           <div class="text-[10px] text-slate-400 mt-1 space-y-0.5">
-            <div>Proj: <span class="text-slate-300 font-semibold">{{ bet.side_a.projected_points.toFixed(1) }}</span></div>
+            <div>Proj: <span class="text-slate-300 font-semibold">{{ sideALiveProjBase.toFixed(1) }}</span></div>
             <div v-if="underdogSide === 'A'" class="text-amber-300 font-bold">
-              w/ Spread: {{ isUpcoming ? sideAEffectiveProj.toFixed(1) : sideAEffectiveScore.toFixed(2) }}
+              w/ Spread: {{ (bet.is_completed ? sideAEffectiveActual : sideAEffectiveLiveProj).toFixed(1) }}
             </div>
           </div>
         </div>
@@ -452,16 +482,16 @@ const displayTitle = computed<string>(() => {
             {{ bet.side_b.raw_points.toFixed(2) }}
           </div>
           <div class="text-[10px] text-slate-400 mt-1 space-y-0.5">
-            <div>Proj: <span class="text-slate-300 font-semibold">{{ bet.side_b.projected_points.toFixed(1) }}</span></div>
+            <div>Proj: <span class="text-slate-300 font-semibold">{{ sideBLiveProjBase.toFixed(1) }}</span></div>
             <div v-if="underdogSide === 'B'" class="text-amber-300 font-bold">
-              w/ Spread: {{ isUpcoming ? sideBEffectiveProj.toFixed(1) : sideBEffectiveScore.toFixed(2) }}
+              w/ Spread: {{ (bet.is_completed ? sideBEffectiveActual : sideBEffectiveLiveProj).toFixed(1) }}
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Broadcast-Grade Stadium Tug-of-War Meter -->
+    <!-- Broadcast-Grade Stadium Tug-of-War Meter (Live Projected + Actual vs. Projected Split) -->
     <div class="px-3.5 pb-3.5 pt-0.5 space-y-2.5">
       <div class="rounded-xl bg-slate-900/80 border border-slate-800/90 p-2.5 space-y-2 shadow-inner">
         <!-- Top Equation & Color Key Header (Wraps cleanly on mobile) -->
@@ -470,7 +500,15 @@ const displayTitle = computed<string>(() => {
           <div class="flex items-center gap-1.5 flex-wrap">
             <span class="inline-flex items-center gap-1.5 font-bold text-sky-300">
               <span class="w-2.5 h-2.5 rounded-sm bg-gradient-to-br from-sky-400 to-cyan-500 shadow-sm shrink-0"></span>
-              <span>{{ getSideDisplayName(bet.side_a) }} ({{ (isUpcoming ? bet.side_a.projected_points : bet.side_a.raw_points).toFixed(1) }})</span>
+              <span>
+                {{ getSideDisplayName(bet.side_a) }}
+                <template v-if="bet.is_live">
+                  ({{ bet.side_a.raw_points.toFixed(1) }} / Proj {{ sideALiveProjBase.toFixed(1) }})
+                </template>
+                <template v-else>
+                  ({{ (bet.is_completed ? bet.side_a.raw_points : sideALiveProjBase).toFixed(1) }})
+                </template>
+              </span>
             </span>
 
             <template v-if="hasSpread && underdogSide === 'A'">
@@ -479,14 +517,14 @@ const displayTitle = computed<string>(() => {
                 <span class="w-2 h-2 rounded-xs bg-amber-400 shrink-0"></span>
                 <span>+{{ spreadAbs.toFixed(1) }} SPREAD</span>
               </span>
-              <span class="text-slate-400">= <strong class="text-white">{{ (isUpcoming ? sideAEffectiveProj : sideAEffectiveScore).toFixed(1) }}</strong></span>
+              <span class="text-slate-400">= <strong class="text-white">{{ (bet.is_completed ? sideAEffectiveActual : sideAEffectiveLiveProj).toFixed(1) }}</strong></span>
             </template>
           </div>
 
           <!-- Side B Key -->
           <div class="flex items-center gap-1.5 flex-wrap ml-auto">
             <template v-if="hasSpread && underdogSide === 'B'">
-              <span class="text-slate-400"><strong class="text-white">{{ (isUpcoming ? sideBEffectiveProj : sideBEffectiveScore).toFixed(1) }}</strong> =</span>
+              <span class="text-slate-400"><strong class="text-white">{{ (bet.is_completed ? sideBEffectiveActual : sideBEffectiveLiveProj).toFixed(1) }}</strong> =</span>
               <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-400/40 font-black shadow-sm">
                 <span class="w-2 h-2 rounded-xs bg-amber-400 shrink-0"></span>
                 <span>+{{ spreadAbs.toFixed(1) }} SPREAD</span>
@@ -495,35 +533,59 @@ const displayTitle = computed<string>(() => {
             </template>
 
             <span class="inline-flex items-center gap-1.5 font-bold text-indigo-300">
-              <span>{{ getSideDisplayName(bet.side_b) }} ({{ (isUpcoming ? bet.side_b.projected_points : bet.side_b.raw_points).toFixed(1) }})</span>
+              <span>
+                {{ getSideDisplayName(bet.side_b) }}
+                <template v-if="bet.is_live">
+                  ({{ bet.side_b.raw_points.toFixed(1) }} / Proj {{ sideBLiveProjBase.toFixed(1) }})
+                </template>
+                <template v-else>
+                  ({{ (bet.is_completed ? bet.side_b.raw_points : sideBLiveProjBase).toFixed(1) }})
+                </template>
+              </span>
               <span class="w-2.5 h-2.5 rounded-sm bg-gradient-to-br from-indigo-400 to-violet-500 shadow-sm shrink-0"></span>
             </span>
           </div>
         </div>
 
-        <!-- Tactile 3-Segment Tug-of-War Bar with 50% Win Line Pin -->
+        <!-- Tactile 5-Segment Tug-of-War Bar (Actual Solid + Remaining Proj Translucent + Gold Spread) -->
         <div class="relative py-1">
           <!-- Center 50% Win Line Pin & Notch -->
           <div
             class="absolute left-1/2 -top-0.5 -bottom-0.5 -translate-x-1/2 z-30 flex flex-col items-center pointer-events-none"
-            title="50% Cover Midline"
+            title="50% Tie / Cover Midline"
           >
             <div class="w-1.5 h-1.5 rotate-45 bg-white shadow"></div>
             <div class="w-[2px] flex-1 bg-white/90 shadow-[0_0_8px_rgba(255,255,255,0.8)]"></div>
             <div class="w-1.5 h-1.5 rotate-45 bg-white shadow"></div>
           </div>
 
-          <!-- Recessed Bar Track (No inline text inside segments; purely proportional visual) -->
-          <div class="h-3.5 rounded-full bg-slate-950 p-0.5 border border-slate-800/90 shadow-inner flex items-stretch overflow-hidden relative">
-            <!-- Segment 1: Side A Base Score -->
+          <!-- Recessed Bar Track -->
+          <div class="h-4 rounded-full bg-slate-950 p-0.5 border border-slate-800/90 shadow-inner flex items-stretch overflow-hidden relative">
+            <!-- Segment 1A: Side A Actual Points Scored (Solid Vibrant Fill) -->
             <div
+              v-if="tugSegments.sideAActualPct > 0"
+              class="h-full transition-all duration-500 first:rounded-l-full"
+              :class="[
+                activeLeader === 'A'
+                  ? 'bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]'
+                  : 'bg-gradient-to-r from-sky-600 via-sky-500 to-cyan-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]',
+                tugSegments.sideARemProjPct > 0 ? 'border-r-2 border-white/80' : '',
+              ]"
+              :style="{ width: `${tugSegments.sideAActualPct}%` }"
+              :title="`${getSideDisplayName(bet.side_a)} Actual Scored: ${bet.side_a.raw_points.toFixed(2)} pts`"
+            ></div>
+
+            <!-- Segment 1B: Side A Projected Points (Fainter Translucent Fill) -->
+            <div
+              v-if="tugSegments.sideARemProjPct > 0"
               class="h-full transition-all duration-500 first:rounded-l-full"
               :class="
                 activeLeader === 'A'
-                  ? 'bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]'
-                  : 'bg-gradient-to-r from-sky-600 via-sky-500 to-cyan-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]'
+                  ? 'bg-emerald-400/25 border-y border-emerald-400/30'
+                  : 'bg-sky-400/25 border-y border-sky-400/30'
               "
-              :style="{ width: `${tugSegments.sideAPct}%` }"
+              :style="{ width: `${tugSegments.sideARemProjPct}%` }"
+              :title="`${getSideDisplayName(bet.side_a)} Remaining Projected: ${Math.max(0, sideALiveProjBase - bet.side_a.raw_points).toFixed(1)} pts`"
             ></div>
 
             <!-- Segment 2: Proportional Color-Coded Gold/Amber Spread Cushion -->
@@ -543,30 +605,49 @@ const displayTitle = computed<string>(() => {
               :title="`Spread Cushion: +${spreadAbs.toFixed(1)} pts`"
             ></div>
 
-            <!-- Segment 3: Side B Base Score -->
+            <!-- Segment 3A: Side B Projected Points (Fainter Translucent Fill toward center) -->
             <div
-              class="h-full flex-1 transition-all duration-500 last:rounded-r-full"
+              v-if="tugSegments.sideBRemProjPct > 0"
+              class="h-full transition-all duration-500 last:rounded-r-full"
               :class="
                 activeLeader === 'B'
-                  ? 'bg-gradient-to-l from-emerald-600 via-emerald-500 to-teal-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]'
-                  : 'bg-gradient-to-l from-indigo-600 via-indigo-500 to-violet-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]'
+                  ? 'bg-emerald-400/25 border-y border-emerald-400/30'
+                  : 'bg-indigo-400/25 border-y border-indigo-400/30'
               "
+              :style="{ width: `${tugSegments.sideBRemProjPct}%` }"
+              :title="`${getSideDisplayName(bet.side_b)} Remaining Projected: ${Math.max(0, sideBLiveProjBase - bet.side_b.raw_points).toFixed(1)} pts`"
+            ></div>
+
+            <!-- Segment 3B: Side B Actual Points Scored (Solid Vibrant Fill anchored on right edge) -->
+            <div
+              v-if="tugSegments.sideBActualPct > 0"
+              class="h-full transition-all duration-500 last:rounded-r-full"
+              :class="[
+                activeLeader === 'B'
+                  ? 'bg-gradient-to-l from-emerald-600 via-emerald-500 to-teal-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]'
+                  : 'bg-gradient-to-l from-indigo-600 via-indigo-500 to-violet-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.3)]',
+                tugSegments.sideBRemProjPct > 0 ? 'border-l-2 border-white/80' : '',
+              ]"
+              :style="{ width: `${tugSegments.sideBActualPct}%` }"
+              :title="`${getSideDisplayName(bet.side_b)} Actual Scored: ${bet.side_b.raw_points.toFixed(2)} pts`"
             ></div>
           </div>
         </div>
 
-        <!-- Subtle Scale Caption under the bar -->
-        <div class="flex items-center justify-between text-[9.5px] font-mono text-slate-400">
+        <!-- Subtle Scale Caption under the bar: Actual vs Projected Totals -->
+        <div class="flex items-center justify-between gap-2 flex-wrap text-[10px] font-mono text-slate-400">
           <span>
-            {{ getSideDisplayName(bet.side_a) }} Total:
-            <strong class="text-slate-200">{{ (isUpcoming ? sideAEffectiveProj : sideAEffectiveScore).toFixed(1) }}</strong>
+            Actual: <strong class="text-slate-200">{{ sideAEffectiveActual.toFixed(1) }}</strong>
+            <span class="text-slate-600 mx-1">·</span>
+            Proj: <strong class="text-sky-300">{{ sideAEffectiveLiveProj.toFixed(1) }}</strong>
           </span>
-          <span class="text-slate-500 uppercase tracking-wider font-bold">
-            {{ Math.abs(sideATotalReachPct - 50) < 1.5 ? 'Dead Even at Midline' : '50% Win Line' }}
+          <span v-if="hasSomeActualPoints && !bet.is_completed" class="text-[9.5px] text-slate-500 uppercase tracking-wider font-bold">
+            Solid = Actual · Shaded = Proj
           </span>
-          <span>
-            {{ getSideDisplayName(bet.side_b) }} Total:
-            <strong class="text-slate-200">{{ (isUpcoming ? sideBEffectiveProj : sideBEffectiveScore).toFixed(1) }}</strong>
+          <span class="ml-auto">
+            Actual: <strong class="text-slate-200">{{ sideBEffectiveActual.toFixed(1) }}</strong>
+            <span class="text-slate-600 mx-1">·</span>
+            Proj: <strong class="text-indigo-300">{{ sideBEffectiveLiveProj.toFixed(1) }}</strong>
           </span>
         </div>
       </div>

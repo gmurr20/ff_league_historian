@@ -804,7 +804,12 @@ def upsert_matchups_from_payload(
             continue
         home_team = team_lookup[home_espn_id]
 
-        home_score = Decimal(str(home_data.get("totalPoints", 0.0)))
+        raw_home_pts = (
+            home_data.get("totalPointsLive")
+            if home_data.get("totalPointsLive") is not None and not float(home_data.get("totalPoints") or 0.0)
+            else home_data.get("totalPoints", 0.0)
+        )
+        home_score = Decimal(str(raw_home_pts or 0.0))
 
         # Handle BYE matchup (away is missing or null)
         if away_data is None or away_data.get("teamId") is None:
@@ -822,7 +827,12 @@ def upsert_matchups_from_payload(
                 continue
             away_team = team_lookup[away_espn_id]
             away_team_id = away_team.id
-            away_score = Decimal(str(away_data.get("totalPoints", 0.0)))
+            raw_away_pts = (
+                away_data.get("totalPointsLive")
+                if away_data.get("totalPointsLive") is not None and not float(away_data.get("totalPoints") or 0.0)
+                else away_data.get("totalPoints", 0.0)
+            )
+            away_score = Decimal(str(raw_away_pts or 0.0))
 
             winner_str = item.get("winner")
             is_tie = False
@@ -863,15 +873,25 @@ def upsert_matchups_from_payload(
                 points_by_period["home"] = h_pts
                 points_by_period["away"] = a_pts
 
-        # Optional projected & optimal scores
+        # Optional projected & optimal scores (prefer ESPN's live updated projection when in-progress)
+        raw_home_proj = (
+            home_data.get("totalProjectedPointsLive")
+            if home_data.get("totalProjectedPointsLive") is not None
+            else home_data.get("totalProjectedPoints")
+        )
+        raw_away_proj = (
+            away_data.get("totalProjectedPointsLive")
+            if away_data and away_data.get("totalProjectedPointsLive") is not None
+            else (away_data.get("totalProjectedPoints") if away_data else None)
+        )
         home_proj = (
-            Decimal(str(home_data.get("totalProjectedPoints")))
-            if home_data.get("totalProjectedPoints") is not None
+            Decimal(str(raw_home_proj))
+            if raw_home_proj is not None
             else None
         )
         away_proj = (
-            Decimal(str(away_data.get("totalProjectedPoints")))
-            if away_data and away_data.get("totalProjectedPoints") is not None
+            Decimal(str(raw_away_proj))
+            if raw_away_proj is not None
             else None
         )
 

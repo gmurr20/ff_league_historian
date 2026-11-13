@@ -402,9 +402,10 @@ def _seed_matchups(
     matchup_pk_id = 1
 
     for year in [2022, 2023, 2024]:
-        max_reg_weeks = 7 if year == 2024 else 14
+        max_reg_weeks = 8 if year == 2024 else 14
         # 1. Regular season schedule (4 games per week across 8 teams)
         for week in range(1, max_reg_weeks + 1):
+            is_live_week = (year == 2024 and week == 8)
             pairings = [(1, 2), (3, 4), (5, 6), (7, 8)]
             # Rotate pairings slightly each week
             shift = (week - 1) % 3
@@ -423,6 +424,11 @@ def _seed_matchups(
                     h_score = Decimal("114.50")
                     a_score = Decimal("114.50")
                     winner_id = None
+                elif is_live_week:
+                    # Live in-progress Week 8 scores (3 of 5 starters have played so far)
+                    h_score = Decimal(f"{58.00 + (h_idx * 3.5):.2f}")
+                    a_score = Decimal(f"{64.00 + (a_idx * 4.0):.2f}")
+                    winner_id = None
                 else:
                     h_score = Decimal(f"{100.00 + (h_idx * 5.0) + (week * 2.1):.2f}")
                     a_score = Decimal(f"{95.00 + (a_idx * 4.8) + (week * 1.9):.2f}")
@@ -437,15 +443,15 @@ def _seed_matchups(
                     away_team_id=a_team.id,
                     home_score=h_score,
                     away_score=a_score,
-                    home_projected=Decimal("110.00"),
-                    away_projected=Decimal("108.50"),
+                    home_projected=Decimal("114.50") if is_live_week else Decimal("110.00"),
+                    away_projected=Decimal("122.00") if is_live_week else Decimal("108.50"),
                     home_optimal_score=h_score + Decimal("15.20"),
                     away_optimal_score=a_score + Decimal("12.40"),
                     home_bench_points=Decimal("38.50"),
                     away_bench_points=Decimal("32.10"),
                     winner_team_id=winner_id,
                     is_tie=is_tie,
-                    is_completed=True,
+                    is_completed=not is_live_week,
                     points_by_scoring_period={"1": float(h_score)},
                 )
                 session.add(m)
@@ -611,8 +617,9 @@ def _seed_lineups(
     lineups: list[WeeklyLineup] = []
 
     for year in [2022, 2023, 2024]:
-        max_weeks = 7 if year == 2024 else 17
+        max_weeks = 8 if year == 2024 else 17
         for week in range(1, max_weeks + 1):
+            is_live_week = (year == 2024 and week == 8)
             for espn_id in range(1, 9):
                 team = teams[(year, espn_id)]
 
@@ -628,9 +635,17 @@ def _seed_lineups(
                         starter_pids = [107, 108, 109, 110, 112]  # Kyren (107) starts for Team 2
 
                 slots = ["QB", "RB", "WR", "TE", "FLEX"]
-                for slot, pid in zip(slots, starter_pids, strict=False):
-                    pts = Decimal(f"{15.00 + ((pid % 7) * 2.5) + (week * 0.5):.2f}")
-                    proj = Decimal(f"{14.00 + ((pid % 5) * 2.0):.2f}")
+                for s_idx, (slot, pid) in enumerate(zip(slots, starter_pids, strict=False)):
+                    proj = Decimal(f"{18.00 + ((pid % 5) * 2.5) + (espn_id * 0.8):.2f}")
+                    if is_live_week:
+                        # First 3 starters have played/are playing; last 2 starters haven't kicked off yet (0.00 actual)
+                        if s_idx < 3:
+                            pts = Decimal(f"{16.50 + ((pid % 7) * 2.2) + (espn_id * 1.1):.2f}")
+                        else:
+                            pts = Decimal("0.00")
+                    else:
+                        pts = Decimal(f"{15.00 + ((pid % 7) * 2.5) + (week * 0.5):.2f}")
+                        proj = Decimal(f"{14.00 + ((pid % 5) * 2.0):.2f}")
                     lineup = WeeklyLineup(
                         season_year=year,
                         week=week,
@@ -1096,6 +1111,21 @@ def _seed_earnings_ledger(
 def _seed_side_bets(session: Session) -> None:
     """Seed realistic 1v1 and 2v2 group side bets with spreads and positive/negative stakes."""
     bets = [
+        SideBet(
+            bet_uuid="bet-seed-2024-w08-live-showdown",
+            season_year=2024,
+            week=8,
+            title="Sunday Afternoon Showdown",
+            side_a_name="Archer + Clark",
+            side_b_name="Evans + Green Hill",
+            side_a_espn_team_ids=[1, 3],
+            side_b_espn_team_ids=[5, 7],
+            spread_side_a=Decimal("18.50"),
+            stake_amount=Decimal("20.00"),
+            stake_description="$20 per team",
+            scoring_mode="STARTERS",
+            is_deleted=False,
+        ),
         SideBet(
             bet_uuid="bet-seed-2024-w05-rivalry",
             season_year=2024,
