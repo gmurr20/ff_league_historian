@@ -274,11 +274,11 @@ def test_sync_live_scores_updates_matchups_and_lineups(db_session_and_factory: A
     assert run.week_range == "8"
     assert run.records_processed == 3  # 2 players on Team 1 + 1 player on Team 2
 
-    # 2. Verify exactly ONE lightweight ESPN fetch call with mBoxscore + mMatchupScore
+    # 2. Verify lightweight ESPN fetch call with mBoxscore + mMatchupScore + mRoster
     assert len(mock_client.calls) == 1
     call = mock_client.calls[0]
     assert call["season_year"] == 2024
-    assert call["views"] == ["mBoxscore", "mMatchupScore"]
+    assert call["views"] == ["mBoxscore", "mMatchupScore", "mRoster"]
     assert call["scoring_period_id"] == 8
 
     # 3. Verify matchup live scores & projections updated

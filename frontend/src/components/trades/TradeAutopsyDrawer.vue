@@ -639,7 +639,7 @@ const overallScorePercentA = computed(() => {
                       class="px-2 py-1 rounded-md text-[10px] font-mono font-medium border flex items-center gap-1.5"
                       :class="
                         !wk.on_acquiring_team
-                          ? 'bg-slate-950/50 text-slate-500 border-slate-800 line-through'
+                          ? 'bg-indigo-950/40 text-indigo-300 border-indigo-500/30'
                           : wk.slot_position === 'IR' || wk.injury_status === 'INJURY_RESERVE'
                             ? 'bg-rose-950/40 text-rose-300 border-rose-500/50'
                             : wk.injury_status === 'OUT'
@@ -650,7 +650,10 @@ const overallScorePercentA = computed(() => {
                       "
                     >
                       <span>Wk {{ wk.week }}:</span>
-                      <span v-if="!wk.on_acquiring_team">Flipped</span>
+                      <span v-if="!wk.on_acquiring_team" class="flex items-center gap-1">
+                        <span>{{ wk.points.toFixed(1) }} pts</span>
+                        <span class="text-[9px] opacity-80">[Flipped]</span>
+                      </span>
                       <span v-else class="flex items-center gap-1">
                         <span>{{ wk.points.toFixed(1) }} pts</span>
                         <span

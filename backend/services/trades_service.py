@@ -457,8 +457,8 @@ def _evaluate_trade(
         if (trade.season_year, trade_week) in scored_weeks:
             for it in items:
                 if it.to_team_id and it.player_id:
-                    wl_cand = player_week_lineup.get((trade.season_year, it.player_id, trade_week))
-                    if wl_cand and wl_cand.team_id == it.to_team_id:
+                    cand_lineups = player_lineups.get((trade.season_year, it.player_id), [])
+                    if any(wl.week == trade_week and wl.team_id == it.to_team_id for wl in cand_lineups):
                         appeared_in_trade_week = True
                         break
         if appeared_in_trade_week:
@@ -520,6 +520,247 @@ def _evaluate_trade(
 
     # Map of (player_id, receiving_team_id) -> (is_flipped, flip_week)
     flipped_map: dict[tuple[int, int], tuple[bool, int | None]] = {}
+    flipped_dest_map: dict[tuple[int, int], int | None] = {}
+
+    def _trace_flip_chain(
+        target_player_id: int, receiving_team_id: int
+    ) -> tuple[bool, int | None, int | None, list[tuple[int, int]]]:
+        """Trace subsequent trades in the same season if receiving_team flips this asset."""
+        hops: list[tuple[int, int]] = [(effective_start_week, receiving_team_id)]
+        if not all_season_trades:
+            return False, None, None, hops
+
+        trade_wk = trade.week or 0
+        trade_exec = trade.executed_at
+        trade_id_val = trade.id or 0
+
+        subsequent_trades: list[tuple[Trade, list[TransactionItem]]] = []
+        for other_trade, other_items in all_season_trades:
+            if other_trade.id == trade.id or other_trade.season_year != trade.season_year:
+                continue
+            other_wk = other_trade.week or 0
+            if other_wk > trade_wk:
+                subsequent_trades.append((other_trade, other_items))
+            elif other_wk == trade_wk:
+                other_exec = other_trade.executed_at
+                if trade_exec and other_exec and other_exec != trade_exec:
+                    if other_exec > trade_exec:
+                        subsequent_trades.append((other_trade, other_items))
+                elif (other_trade.id or 0) > trade_id_val:
+                    subsequent_trades.append((other_trade, other_items))
+
+        subsequent_trades.sort(
+            key=lambda pair: (
+                pair[0].week or 0,
+                pair[0].executed_at or datetime.min,
+                pair[0].id or 0,
+            )
+        )
+
+        current_holder = receiving_team_id
+        for other_trade, other_items in subsequent_trades:
+            for ot_item in other_items:
+                if ot_item.player_id == target_player_id:
+                    is_outgoing = (
+                        ot_item.from_team_id == current_holder
+                        or (
+                            current_holder
+                            in (other_trade.proposing_team_id, other_trade.accepting_team_id)
+                            and ot_item.to_team_id != current_holder
+                        )
+                    )
+                    if is_outgoing:
+                        if ot_item.to_team_id and ot_item.to_team_id != current_holder:
+                            next_tid = ot_item.to_team_id
+                        elif current_holder == other_trade.proposing_team_id:
+                            next_tid = other_trade.accepting_team_id
+                        else:
+                            next_tid = other_trade.proposing_team_id
+                        if next_tid:
+                            hop_wk = max(effective_start_week, other_trade.week or effective_start_week)
+                            hops.append((hop_wk, next_tid))
+                            current_holder = next_tid
+                        break
+
+        if len(hops) > 1:
+            return True, hops[1][0], hops[1][1], hops
+        return False, None, None, hops
+
+    def _build_post_trade_breakdown(
+        target_player_id: int,
+        receiving_team_id: int,
+        all_p_lineups: list[WeeklyLineup],
+        dedup_p_lineups: list[WeeklyLineup],
+        season_ppg: float,
+        default_pos: str,
+        pos_rank: int | None,
+        hops: list[tuple[int, int]],
+    ) -> list[dict[str, Any]]:
+        """Build weekly post-trade breakdown following the asset across any flip chain."""
+        is_flipped = len(hops) > 1
+        flip_week = hops[1][0] if is_flipped else None
+        post_raw = [wl for wl in all_p_lineups if wl.week >= effective_start_week]
+        by_week: dict[int, list[WeeklyLineup]] = defaultdict(list)
+        for wl in post_raw:
+            by_week[wl.week].append(wl)
+
+        if not is_flipped:
+            # Non-flipped asset: select receiving_team's row when present, else deduplicated row
+            selected_lineups: list[WeeklyLineup] = []
+            for w in sorted(by_week.keys()):
+                wk_rows = by_week[w]
+                on_team_row = next((r for r in wk_rows if r.team_id == receiving_team_id), None)
+                if on_team_row is not None:
+                    selected_lineups.append(on_team_row)
+                else:
+                    selected_lineups.extend(_dedupe_lineups_by_week(wk_rows))
+            return [
+                {
+                    "week": wl.week,
+                    "points": round(float(wl.actual_points), 2),
+                    "is_starter": bool(wl.is_starter),
+                    "slot_position": str(wl.slot_position or ("BE" if not wl.is_starter else "FLEX")),
+                    "on_acquiring_team": bool(wl.team_id == receiving_team_id),
+                    "injury_status": (
+                        wl.weekly_stats.get("injury_status")
+                        if isinstance(wl.weekly_stats, dict) and wl.weekly_stats.get("injury_status")
+                        else ("INJURY_RESERVE" if wl.slot_position == "IR" else None)
+                    ),
+                    "is_injured": bool(
+                        (isinstance(wl.weekly_stats, dict) and wl.weekly_stats.get("injured"))
+                        or wl.slot_position == "IR"
+                        or (
+                            isinstance(wl.weekly_stats, dict)
+                            and wl.weekly_stats.get("injury_status") in ("INJURY_RESERVE", "OUT")
+                        )
+                    ),
+                }
+                for wl in selected_lineups
+            ]
+
+        # Flipped asset: evaluate pre-flip form & health for post-flip injury/drop protection
+        eff_flip_wk = flip_week or effective_start_week
+        if eff_flip_wk in by_week and any(r.team_id == receiving_team_id for r in by_week[eff_flip_wk]):
+            eff_flip_wk += 1
+
+        pre_flip_games = [
+            wl
+            for wl in dedup_p_lineups
+            if wl.week < eff_flip_wk and _has_played_week(wl, season_scored_weeks)
+        ]
+        pre_flip_ppg = (
+            round(sum(float(wl.actual_points or 0.0) for wl in pre_flip_games) / len(pre_flip_games), 2)
+            if pre_flip_games
+            else season_ppg
+        )
+
+        pre_flip_all = [wl for wl in dedup_p_lineups if wl.week < eff_flip_wk]
+        last_pre_flip = pre_flip_all[-1] if pre_flip_all else None
+        was_healthy_at_flip = True
+        if last_pre_flip is not None:
+            last_stats = last_pre_flip.weekly_stats if isinstance(last_pre_flip.weekly_stats, dict) else {}
+            last_inj = last_stats.get("injury_status")
+            if last_pre_flip.slot_position == "IR" or last_inj in ("INJURY_RESERVE", "OUT", "SUSPENSION"):
+                was_healthy_at_flip = False
+
+        on_team_pre_flip = [
+            next(r for r in by_week[w] if r.team_id == receiving_team_id)
+            for w in sorted(by_week.keys())
+            if w < eff_flip_wk and any(r.team_id == receiving_team_id for r in by_week[w])
+        ]
+        vorp_base = POSITION_BASELINES.get(default_pos, 9.8)
+        if on_team_pre_flip:
+            was_starter_at_flip = sum(1 for r in on_team_pre_flip if r.is_starter) >= (len(on_team_pre_flip) / 2.0)
+        elif pre_flip_games:
+            was_starter_at_flip = sum(1 for r in pre_flip_games if r.is_starter) >= (len(pre_flip_games) / 2.0)
+        else:
+            was_starter_at_flip = (pos_rank is not None and pos_rank <= 24) or pre_flip_ppg >= vorp_base
+
+        breakdown: list[dict[str, Any]] = []
+        target_weeks = sorted(set(season_weeks) | set(by_week.keys()))
+        for w in target_weeks:
+            if w < effective_start_week:
+                continue
+            wk_rows = by_week.get(w, [])
+            on_acq_row = next((r for r in wk_rows if r.team_id == receiving_team_id), None)
+            if w < eff_flip_wk and on_acq_row is not None:
+                breakdown.append(
+                    {
+                        "week": w,
+                        "points": round(float(on_acq_row.actual_points), 2),
+                        "is_starter": bool(on_acq_row.is_starter),
+                        "slot_position": str(
+                            on_acq_row.slot_position or ("BE" if not on_acq_row.is_starter else "FLEX")
+                        ),
+                        "on_acquiring_team": True,
+                        "injury_status": (
+                            on_acq_row.weekly_stats.get("injury_status")
+                            if isinstance(on_acq_row.weekly_stats, dict)
+                            and on_acq_row.weekly_stats.get("injury_status")
+                            else ("INJURY_RESERVE" if on_acq_row.slot_position == "IR" else None)
+                        ),
+                        "is_injured": bool(
+                            (isinstance(on_acq_row.weekly_stats, dict) and on_acq_row.weekly_stats.get("injured"))
+                            or on_acq_row.slot_position == "IR"
+                            or (
+                                isinstance(on_acq_row.weekly_stats, dict)
+                                and on_acq_row.weekly_stats.get("injury_status") in ("INJURY_RESERVE", "OUT")
+                            )
+                        ),
+                    }
+                )
+            elif w >= eff_flip_wk:
+                # Find active downstream holder in trade chain for week w
+                eligible_hops = [h_tid for (h_wk, h_tid) in hops[1:] if h_wk <= w]
+                if not eligible_hops:
+                    eligible_hops = [hops[1][1]]
+                chain_row: WeeklyLineup | None = None
+                for cand_tid in reversed(eligible_hops):
+                    chain_row = next((r for r in wk_rows if r.team_id == cand_tid), None)
+                    if chain_row is not None:
+                        break
+
+                is_downstream_injured = False
+                if chain_row is not None:
+                    c_stats = chain_row.weekly_stats if isinstance(chain_row.weekly_stats, dict) else {}
+                    c_inj = c_stats.get("injury_status")
+                    if float(chain_row.actual_points or 0.0) == 0.0 and (
+                        chain_row.slot_position == "IR"
+                        or c_inj in ("INJURY_RESERVE", "OUT", "DOUBTFUL", "SUSPENSION")
+                        or bool(c_stats.get("injured"))
+                    ):
+                        is_downstream_injured = True
+
+                if (chain_row is None or is_downstream_injured) and was_healthy_at_flip and pre_flip_ppg > 0.0:
+                    # Protect manager who sold high before a downstream injury or cut
+                    if w in season_scored_weeks:
+                        breakdown.append(
+                            {
+                                "week": w,
+                                "points": pre_flip_ppg,
+                                "is_starter": bool(was_starter_at_flip),
+                                "slot_position": default_pos if was_starter_at_flip else "BE",
+                                "on_acquiring_team": False,
+                                "injury_status": None,
+                                "is_injured": False,
+                            }
+                        )
+                elif chain_row is not None:
+                    breakdown.append(
+                        {
+                            "week": w,
+                            "points": round(float(chain_row.actual_points), 2),
+                            "is_starter": bool(chain_row.is_starter),
+                            "slot_position": str(
+                                chain_row.slot_position or ("BE" if not chain_row.is_starter else "FLEX")
+                            ),
+                            "on_acquiring_team": False,
+                            "injury_status": None,
+                            "is_injured": False,
+                        }
+                    )
+
+        return breakdown
 
     def _evaluate_asset(item: TransactionItem, receiving_team: Team) -> dict[str, Any]:
         player = item.player or player_map.get(item.player_id)
@@ -529,34 +770,11 @@ def _evaluate_trade(
         player_headshot = player.headshot_url if player else None
         player_espn_id = player.espn_player_id if player else item.player_id
 
-        # Check flipped equity for this asset
-        is_flipped = False
-        flip_week: int | None = None
-        trade_wk = trade.week or 0
-        if all_season_trades:
-            for other_trade, other_items in all_season_trades:
-                if other_trade.id == trade.id or other_trade.season_year != trade.season_year:
-                    continue
-                other_wk = other_trade.week or 0
-                if other_wk > trade_wk:
-                    for ot_item in other_items:
-                        if ot_item.player_id == item.player_id:
-                            is_outgoing = (
-                                ot_item.from_team_id == receiving_team.id
-                                or (
-                                    receiving_team.id
-                                    in (other_trade.proposing_team_id, other_trade.accepting_team_id)
-                                    and ot_item.to_team_id != receiving_team.id
-                                )
-                            )
-                            if is_outgoing:
-                                is_flipped = True
-                                flip_week = other_wk
-                                break
-                if is_flipped:
-                    break
-
+        is_flipped, flip_week, flipped_to_tid, flip_hops = _trace_flip_chain(
+            item.player_id, receiving_team.id
+        )
         flipped_map[(item.player_id, receiving_team.id)] = (is_flipped, flip_week)
+        flipped_dest_map[(item.player_id, receiving_team.id)] = flipped_to_tid
 
         # Determine if this item is a Draft Pick
         is_pick = item.player_id < 0 or player_pos == "PICK"
@@ -630,7 +848,6 @@ def _evaluate_trade(
                     for wl in dedup_dp_lineups
                     if wl.week < effective_start_week and _has_played_week(wl, season_scored_weeks)
                 ]
-                post_dp_lineups = [wl for wl in all_dp_lineups if wl.week >= effective_start_week]
                 all_dp_played = [
                     wl for wl in dedup_dp_lineups if _has_played_week(wl, season_scored_weeks)
                 ]
@@ -644,64 +861,52 @@ def _evaluate_trade(
                     round(season_total_pts / len(all_dp_played), 2) if all_dp_played else 0.0
                 )
 
+                dp_rank = season_ranks.get(dp.player_id)
+                dp_is_flipped, dp_flip_wk, dp_flip_tid, dp_hops = _trace_flip_chain(
+                    dp.player_id, receiving_team.id
+                )
+                if dp_is_flipped and not is_flipped:
+                    is_flipped = True
+                    flip_week = dp_flip_wk
+                    flipped_map[(item.player_id, receiving_team.id)] = (True, dp_flip_wk)
+                    flipped_dest_map[(item.player_id, receiving_team.id)] = dp_flip_tid
+                active_dp_hops = dp_hops if dp_is_flipped else flip_hops
+
+                weekly_breakdown = _build_post_trade_breakdown(
+                    target_player_id=dp.player_id,
+                    receiving_team_id=receiving_team.id,
+                    all_p_lineups=all_dp_lineups,
+                    dedup_p_lineups=dedup_dp_lineups,
+                    season_ppg=season_ppg,
+                    default_pos=drafted_player_pos,
+                    pos_rank=dp_rank,
+                    hops=active_dp_hops,
+                )
+
+                active_dp_wbs = [
+                    wb for wb in weekly_breakdown if wb.get("on_acquiring_team") or is_flipped
+                ]
                 post_trade_starter_pts = round(
-                    sum(
-                        float(wl.actual_points)
-                        for wl in post_dp_lineups
-                        if wl.team_id == receiving_team.id and wl.is_starter
-                    ),
+                    sum(wb["points"] for wb in active_dp_wbs if wb["is_starter"]),
                     2,
                 )
                 post_trade_weeks_started = sum(
-                    1
-                    for wl in post_dp_lineups
-                    if wl.team_id == receiving_team.id and wl.is_starter
+                    1 for wb in active_dp_wbs if wb["is_starter"]
                 )
                 post_trade_bench_pts = round(
-                    sum(
-                        float(wl.actual_points)
-                        for wl in post_dp_lineups
-                        if wl.team_id == receiving_team.id and not wl.is_starter
-                    ),
+                    sum(wb["points"] for wb in active_dp_wbs if not wb["is_starter"]),
                     2,
                 )
                 post_trade_total_pts = round(
-                    sum(float(wl.actual_points) for wl in post_dp_lineups), 2
+                    sum(wb["points"] for wb in active_dp_wbs), 2
                 )
-                post_trade_weeks_played = len(post_dp_lineups)
+                post_trade_weeks_played = len(active_dp_wbs)
                 drafted_player_points = round(post_trade_total_pts, 2)
-
-                weekly_breakdown = [
-                    {
-                        "week": wl.week,
-                        "points": round(float(wl.actual_points), 2),
-                        "is_starter": bool(wl.is_starter),
-                        "slot_position": str(
-                            wl.slot_position or ("BE" if not wl.is_starter else "FLEX")
-                        ),
-                        "on_acquiring_team": bool(wl.team_id == receiving_team.id),
-                        "injury_status": (
-                            wl.weekly_stats.get("injury_status")
-                            if isinstance(wl.weekly_stats, dict) and wl.weekly_stats.get("injury_status")
-                            else ("INJURY_RESERVE" if wl.slot_position == "IR" else None)
-                        ),
-                        "is_injured": bool(
-                            (isinstance(wl.weekly_stats, dict) and wl.weekly_stats.get("injured"))
-                            or wl.slot_position == "IR"
-                            or (
-                                isinstance(wl.weekly_stats, dict)
-                                and wl.weekly_stats.get("injury_status") in ("INJURY_RESERVE", "OUT")
-                            )
-                        ),
-                    }
-                    for wl in sorted(post_dp_lineups, key=lambda x: x.week)
-                ]
 
                 dp_roster_depth = round(
                     (post_trade_bench_pts * 0.30) + (post_trade_weeks_played * 0.8), 2
                 )
                 pos_mult = POS_MULTIPLIER.get(drafted_player_pos, 1.0)
-                dp_rank = season_ranks.get(dp.player_id)
                 dp_tier_rank = season_tier_ranks.get(dp.player_id)
                 dp_tier_mult, dp_tier_label = get_tier_info(dp_tier_rank)
                 dp_effective_ppg = pre_trade_ppg if pre_dp_lineups else season_ppg
@@ -830,7 +1035,6 @@ def _evaluate_trade(
             for wl in dedup_p_lineups
             if wl.week < effective_start_week and _has_played_week(wl, season_scored_weeks)
         ]
-        post_p_lineups = [wl for wl in all_p_lineups if wl.week >= effective_start_week]
         all_p_played = [wl for wl in dedup_p_lineups if _has_played_week(wl, season_scored_weeks)]
 
         pre_trade_pts = round(sum(float(wl.actual_points) for wl in pre_p_lineups), 2)
@@ -838,58 +1042,40 @@ def _evaluate_trade(
         season_total_pts = round(sum(float(wl.actual_points) for wl in all_p_played), 2)
         season_ppg = round(season_total_pts / len(all_p_played), 2) if all_p_played else 0.0
 
-        post_trade_starter_pts = round(
-            sum(
-                float(wl.actual_points)
-                for wl in post_p_lineups
-                if wl.team_id == receiving_team.id and wl.is_starter
-            ),
-            2,
-        )
-        post_trade_weeks_started = sum(
-            1 for wl in post_p_lineups if wl.team_id == receiving_team.id and wl.is_starter
-        )
-        post_trade_bench_pts = round(
-            sum(
-                float(wl.actual_points)
-                for wl in post_p_lineups
-                if wl.team_id == receiving_team.id and not wl.is_starter
-            ),
-            2,
-        )
-        post_trade_total_pts = round(sum(float(wl.actual_points) for wl in post_p_lineups), 2)
-        post_trade_weeks_played = len(post_p_lineups)
-
-        weekly_breakdown = [
-            {
-                "week": wl.week,
-                "points": round(float(wl.actual_points), 2),
-                "is_starter": bool(wl.is_starter),
-                "slot_position": str(wl.slot_position or ("BE" if not wl.is_starter else "FLEX")),
-                "on_acquiring_team": bool(wl.team_id == receiving_team.id),
-                "injury_status": (
-                    wl.weekly_stats.get("injury_status")
-                    if isinstance(wl.weekly_stats, dict) and wl.weekly_stats.get("injury_status")
-                    else ("INJURY_RESERVE" if wl.slot_position == "IR" else None)
-                ),
-                "is_injured": bool(
-                    (isinstance(wl.weekly_stats, dict) and wl.weekly_stats.get("injured"))
-                    or wl.slot_position == "IR"
-                    or (
-                        isinstance(wl.weekly_stats, dict)
-                        and wl.weekly_stats.get("injury_status") in ("INJURY_RESERVE", "OUT")
-                    )
-                ),
-            }
-            for wl in sorted(post_p_lineups, key=lambda x: x.week)
-        ]
-
         pos_rank = season_ranks.get(item.player_id) if item.player_id else None
         tier_rank = season_tier_ranks.get(item.player_id) if item.player_id else None
         tier_mult, tier_label = get_tier_info(tier_rank)
         effective_ppg = pre_trade_ppg if pre_p_lineups else season_ppg
         vorp_baseline = POSITION_BASELINES.get(player_pos, 9.8)
         vorp_per_game = round(max(0.0, effective_ppg - vorp_baseline), 2)
+
+        weekly_breakdown = _build_post_trade_breakdown(
+            target_player_id=item.player_id,
+            receiving_team_id=receiving_team.id,
+            all_p_lineups=all_p_lineups,
+            dedup_p_lineups=dedup_p_lineups,
+            season_ppg=season_ppg,
+            default_pos=player_pos,
+            pos_rank=pos_rank,
+            hops=flip_hops,
+        )
+
+        active_wbs = [
+            wb for wb in weekly_breakdown if wb.get("on_acquiring_team") or is_flipped
+        ]
+        post_trade_starter_pts = round(
+            sum(wb["points"] for wb in active_wbs if wb["is_starter"]),
+            2,
+        )
+        post_trade_weeks_started = sum(
+            1 for wb in active_wbs if wb["is_starter"]
+        )
+        post_trade_bench_pts = round(
+            sum(wb["points"] for wb in active_wbs if not wb["is_starter"]),
+            2,
+        )
+        post_trade_total_pts = round(sum(wb["points"] for wb in active_wbs), 2)
+        post_trade_weeks_played = len(active_wbs)
 
         bench_points = post_trade_bench_pts
         weeks_held = post_trade_weeks_played
@@ -914,7 +1100,7 @@ def _evaluate_trade(
             ir_penalty = -(out_weeks * 5.0)
 
         roster_depth_score = round(
-            max(-50.0, (bench_points * 0.30) + (weeks_held * 0.8) + (10.0 if is_flipped else 0.0) + ir_penalty),
+            max(-50.0, (bench_points * 0.30) + (weeks_held * 0.8) + ir_penalty),
             2,
         )
 
@@ -1113,6 +1299,12 @@ def _evaluate_trade(
         for asset in side_assets:
             is_fl, fl_wk = flipped_map.get((asset["player_id"], receiving_team.id), (False, None))
             if is_fl and fl_wk is not None:
+                dest_tid = flipped_dest_map.get((asset["player_id"], receiving_team.id))
+                dest_name = (
+                    team_map[dest_tid].team_name
+                    if dest_tid and dest_tid in team_map
+                    else "another team"
+                )
                 timeline_events.append({
                     "week": fl_wk,
                     "player_id": asset["player_id"],
@@ -1122,7 +1314,7 @@ def _evaluate_trade(
                     "event_type": "FLIPPED",
                     "severity": "info",
                     "title": f"Flipped: {asset['full_name']}",
-                    "description": f"{asset['full_name']} was traded away to another team in Week {fl_wk}",
+                    "description": f"{asset['full_name']} was traded away to {dest_name} in Week {fl_wk}",
                 })
 
             for wb in asset.get("weekly_breakdown", []):
@@ -1221,8 +1413,9 @@ def _evaluate_trade(
         w_depth_a = 0.0
         w_score_a = 0.0
         for a in prop_assets:
+            is_fl_a, _ = flipped_map.get((a["player_id"], prop_team.id), (False, None))
             for wb in a.get("weekly_breakdown", []):
-                if wb["week"] == w and wb.get("on_acquiring_team"):
+                if wb["week"] == w and (wb.get("on_acquiring_team") or is_fl_a):
                     pts = wb["points"]
                     is_st = wb["is_starter"]
                     if is_st:
@@ -1231,8 +1424,6 @@ def _evaluate_trade(
                         w_bench_a += pts
                     b_pts = pts if not is_st else 0.0
                     held_pts = 0.8
-                    is_fl, fl_wk = flipped_map.get((a["player_id"], prop_team.id), (False, None))
-                    flip_pts = 10.0 if (is_fl and fl_wk == w) else 0.0
 
                     ir_weeks_on_team = [
                         wb_item["week"] for wb_item in a.get("weekly_breakdown", [])
@@ -1240,28 +1431,40 @@ def _evaluate_trade(
                         and (wb_item.get("injury_status") == "INJURY_RESERVE" or wb_item.get("slot_position") == "IR")
                     ]
                     first_ir_week = min(ir_weeks_on_team) if ir_weeks_on_team else None
-                    if wb.get("injury_status") == "INJURY_RESERVE" or wb.get("slot_position") == "IR":
+                    if wb.get("on_acquiring_team") and (
+                        wb.get("injury_status") == "INJURY_RESERVE" or wb.get("slot_position") == "IR"
+                    ):
                         if w == first_ir_week:
                             ir_penalty = -20.0
                         elif first_ir_week is not None and w > first_ir_week + 3:
                             ir_penalty = -5.0
                         else:
                             ir_penalty = 0.0
-                    elif wb.get("is_injured"):
+                    elif wb.get("on_acquiring_team") and wb.get("is_injured"):
                         ir_penalty = -5.0
                     else:
                         ir_penalty = 0.0
 
-                    d_pts = (b_pts * 0.30) + held_pts + flip_pts + ir_penalty
+                    d_pts = (b_pts * 0.30) + held_pts + ir_penalty
                     w_depth_a += d_pts
-                    pos_mult = POS_MULTIPLIER.get(a["default_position"], 1.0)
-                    tier_mult, _ = get_tier_info(season_tier_ranks.get(a["player_id"]))
+                    target_pos_a = (
+                        a.get("drafted_player_position") or "FLEX"
+                        if a["asset_type"] == "PICK"
+                        else a["default_position"]
+                    )
+                    pos_mult = POS_MULTIPLIER.get(target_pos_a, 1.0)
+                    target_pid_a = (
+                        a["drafted_player_id"]
+                        if a["asset_type"] == "PICK" and a.get("drafted_player_id") is not None
+                        else a["player_id"]
+                    )
+                    tier_mult, _ = get_tier_info(season_tier_ranks.get(target_pid_a))
                     stud_factor = 1.15 if a.get("is_stud") else 1.0
                     fit_mult_a = asset_fit_map.get((a["player_id"], prop_team.id), 1.0)
                     if a["asset_type"] == "PLAYER":
                         w_score_a += ((pts if is_st else 0.0) * pos_mult * tier_mult * stud_factor * fit_mult_a) + d_pts
                     elif a["asset_type"] == "PICK" and a["drafted_player_id"] is not None:
-                        w_score_a += 0.55 * (((pts if is_st else 0.0) + d_pts) * pos_mult)
+                        w_score_a += 0.55 * (((pts if is_st else 0.0) * pos_mult * tier_mult) + d_pts)
                     break
 
         # Slot equalization for Side A
@@ -1283,8 +1486,9 @@ def _evaluate_trade(
         w_depth_b = 0.0
         w_score_b = 0.0
         for a in acc_assets:
+            is_fl_b, _ = flipped_map.get((a["player_id"], acc_team.id), (False, None))
             for wb in a.get("weekly_breakdown", []):
-                if wb["week"] == w and wb.get("on_acquiring_team"):
+                if wb["week"] == w and (wb.get("on_acquiring_team") or is_fl_b):
                     pts = wb["points"]
                     is_st = wb["is_starter"]
                     if is_st:
@@ -1293,8 +1497,6 @@ def _evaluate_trade(
                         w_bench_b += pts
                     b_pts = pts if not is_st else 0.0
                     held_pts = 0.8
-                    is_fl, fl_wk = flipped_map.get((a["player_id"], acc_team.id), (False, None))
-                    flip_pts = 10.0 if (is_fl and fl_wk == w) else 0.0
 
                     ir_weeks_on_team = [
                         wb_item["week"] for wb_item in a.get("weekly_breakdown", [])
@@ -1302,28 +1504,40 @@ def _evaluate_trade(
                         and (wb_item.get("injury_status") == "INJURY_RESERVE" or wb_item.get("slot_position") == "IR")
                     ]
                     first_ir_week = min(ir_weeks_on_team) if ir_weeks_on_team else None
-                    if wb.get("injury_status") == "INJURY_RESERVE" or wb.get("slot_position") == "IR":
+                    if wb.get("on_acquiring_team") and (
+                        wb.get("injury_status") == "INJURY_RESERVE" or wb.get("slot_position") == "IR"
+                    ):
                         if w == first_ir_week:
                             ir_penalty = -20.0
                         elif first_ir_week is not None and w > first_ir_week + 3:
                             ir_penalty = -5.0
                         else:
                             ir_penalty = 0.0
-                    elif wb.get("is_injured"):
+                    elif wb.get("on_acquiring_team") and wb.get("is_injured"):
                         ir_penalty = -5.0
                     else:
                         ir_penalty = 0.0
 
-                    d_pts = (b_pts * 0.30) + held_pts + flip_pts + ir_penalty
+                    d_pts = (b_pts * 0.30) + held_pts + ir_penalty
                     w_depth_b += d_pts
-                    pos_mult = POS_MULTIPLIER.get(a["default_position"], 1.0)
-                    tier_mult, _ = get_tier_info(season_tier_ranks.get(a["player_id"]))
+                    target_pos_b = (
+                        a.get("drafted_player_position") or "FLEX"
+                        if a["asset_type"] == "PICK"
+                        else a["default_position"]
+                    )
+                    pos_mult = POS_MULTIPLIER.get(target_pos_b, 1.0)
+                    target_pid_b = (
+                        a["drafted_player_id"]
+                        if a["asset_type"] == "PICK" and a.get("drafted_player_id") is not None
+                        else a["player_id"]
+                    )
+                    tier_mult, _ = get_tier_info(season_tier_ranks.get(target_pid_b))
                     stud_factor = 1.15 if a.get("is_stud") else 1.0
                     fit_mult_b = asset_fit_map.get((a["player_id"], acc_team.id), 1.0)
                     if a["asset_type"] == "PLAYER":
                         w_score_b += ((pts if is_st else 0.0) * pos_mult * tier_mult * stud_factor * fit_mult_b) + d_pts
                     elif a["asset_type"] == "PICK" and a["drafted_player_id"] is not None:
-                        w_score_b += 0.55 * (((pts if is_st else 0.0) + d_pts) * pos_mult)
+                        w_score_b += 0.55 * (((pts if is_st else 0.0) * pos_mult * tier_mult) + d_pts)
                     break
 
         # Slot equalization for Side B

@@ -537,6 +537,138 @@ def test_trade_ir_penalty_and_trajectory_proration() -> None:
     assert wk7_pt["leading_team_id"] == 1
 
 
+def test_trade_flipped_player_chain_and_injury_protection() -> None:
+    """Verifies flipped players do not skew Trade #1 and protect managers who sell high before injury."""
+    season_2026 = Season(
+        season_year=2026,
+        league_id="test_league",
+        league_name="Test League",
+        is_active=True,
+        is_completed=True,
+        regular_season_weeks=14,
+        current_week=14,
+    )
+    team_a = Team(id=1, season_year=2026, manager_id=1, team_name="Team Alpha", wins=8, losses=6)
+    team_b = Team(id=2, season_year=2026, manager_id=2, team_name="Team Beta", wins=8, losses=6)
+    team_c = Team(id=3, season_year=2026, manager_id=3, team_name="Team Gamma", wins=7, losses=7)
+    team_map = {1: team_a, 2: team_b, 3: team_c}
+    mgr_map = {1: "Alpha Mgr", 2: "Beta Mgr", 3: "Gamma Mgr"}
+    mgr_avatar_map = {1: None, 2: None, 3: None}
+
+    saquon = Player(espn_player_id=201, full_name="Saquon Barkley", default_position="RB")
+    kyren = Player(espn_player_id=202, full_name="Kyren Williams", default_position="RB")
+    breece = Player(espn_player_id=203, full_name="Breece Hall", default_position="RB")
+    player_map = {201: saquon, 202: kyren, 203: breece}
+
+    # Trade #1 in Week 3: Team A gets Saquon (201), Team B gets Kyren (202)
+    trade_1 = Trade(
+        id=10,
+        season_year=2026,
+        week=3,
+        espn_transaction_id="trade_2026_w03_saquon_kyren",
+        proposing_team_id=1,
+        accepting_team_id=2,
+        status="EXECUTED",
+    )
+    t1_items = [
+        TransactionItem(id=11, transaction_id=10, player_id=201, from_team_id=2, to_team_id=1, item_type="TRADE"),
+        TransactionItem(id=12, transaction_id=10, player_id=202, from_team_id=1, to_team_id=2, item_type="TRADE"),
+    ]
+
+    # Trade #2 in Week 5: Team A flips Saquon (201) to Team C for Breece Hall (203)
+    trade_2 = Trade(
+        id=20,
+        season_year=2026,
+        week=5,
+        espn_transaction_id="trade_2026_w05_saquon_breece",
+        proposing_team_id=1,
+        accepting_team_id=3,
+        status="EXECUTED",
+    )
+    t2_items = [
+        TransactionItem(id=21, transaction_id=20, player_id=203, from_team_id=3, to_team_id=1, item_type="TRADE"),
+        TransactionItem(id=22, transaction_id=20, player_id=201, from_team_id=1, to_team_id=3, item_type="TRADE"),
+    ]
+    all_season_trades = [(trade_1, t1_items), (trade_2, t2_items)]
+
+    # Weeks 3 & 4: Saquon starts on Team A (16.0 pts/wk), Kyren starts on Team B (16.0 pts/wk)
+    # Weeks 5 & 6: Saquon is flipped to Team C (starts Wk 5 for 16.0 pts, then goes on IR in Wk 6 with 0.0 pts!)
+    # Meanwhile Kyren starts Wk 5 & Wk 6 on Team B (16.0 pts/wk), and Breece starts Wk 5 & Wk 6 on Team A (16.0 pts/wk)
+    saquon_lineups = [
+        WeeklyLineup(id=101, season_year=2026, week=3, team_id=1, player_id=201, actual_points=Decimal("16.0"), is_starter=True, slot_position="RB"),
+        WeeklyLineup(id=102, season_year=2026, week=4, team_id=1, player_id=201, actual_points=Decimal("16.0"), is_starter=True, slot_position="RB"),
+        WeeklyLineup(id=103, season_year=2026, week=5, team_id=3, player_id=201, actual_points=Decimal("16.0"), is_starter=True, slot_position="RB"),
+        WeeklyLineup(
+            id=104, season_year=2026, week=6, team_id=3, player_id=201, actual_points=Decimal("0.0"),
+            is_starter=False, slot_position="IR", weekly_stats={"injury_status": "INJURY_RESERVE", "injured": True}
+        ),
+    ]
+    kyren_lineups = [
+        WeeklyLineup(id=201, season_year=2026, week=3, team_id=2, player_id=202, actual_points=Decimal("16.0"), is_starter=True, slot_position="RB"),
+        WeeklyLineup(id=202, season_year=2026, week=4, team_id=2, player_id=202, actual_points=Decimal("16.0"), is_starter=True, slot_position="RB"),
+        WeeklyLineup(id=203, season_year=2026, week=5, team_id=2, player_id=202, actual_points=Decimal("16.0"), is_starter=True, slot_position="RB"),
+        WeeklyLineup(id=204, season_year=2026, week=6, team_id=2, player_id=202, actual_points=Decimal("16.0"), is_starter=True, slot_position="RB"),
+    ]
+    breece_lineups = [
+        WeeklyLineup(id=301, season_year=2026, week=3, team_id=3, player_id=203, actual_points=Decimal("16.0"), is_starter=True, slot_position="RB"),
+        WeeklyLineup(id=302, season_year=2026, week=4, team_id=3, player_id=203, actual_points=Decimal("16.0"), is_starter=True, slot_position="RB"),
+        WeeklyLineup(id=303, season_year=2026, week=5, team_id=1, player_id=203, actual_points=Decimal("16.0"), is_starter=True, slot_position="RB"),
+        WeeklyLineup(id=304, season_year=2026, week=6, team_id=1, player_id=203, actual_points=Decimal("16.0"), is_starter=True, slot_position="RB"),
+    ]
+
+    scored_weeks = {(2026, 3), (2026, 4), (2026, 5), (2026, 6)}
+    player_lineups = {
+        (2026, 201): saquon_lineups,
+        (2026, 202): kyren_lineups,
+        (2026, 203): breece_lineups,
+    }
+    player_week_lineup = {
+        (wl.season_year, wl.player_id, wl.week): wl
+        for lineups in player_lineups.values()
+        for wl in lineups
+    }
+
+    detail_1 = _evaluate_trade(
+        trade=trade_1,
+        team_map=team_map,
+        mgr_map=mgr_map,
+        mgr_avatar_map=mgr_avatar_map,
+        items=t1_items,
+        scored_weeks=scored_weeks,
+        player_lineups=player_lineups,
+        player_week_lineup=player_week_lineup,
+        player_map=player_map,
+        draft_pick_map={},
+        league_size=12,
+        all_season_trades=all_season_trades,
+        season_info=season_2026,
+    )
+    assert detail_1 is not None
+
+    side_a_t1 = detail_1["sides"][0]
+    side_b_t1 = detail_1["sides"][1]
+    saquon_asset = side_a_t1["assets_received"][0]
+
+    # Team A gets credit for Weeks 3-4 on Team A + Week 5 on Team C + Week 6 pre-flip PPG protection (4 * 16 = 64 pts)
+    assert saquon_asset["post_trade_starter_points"] == 64.0
+    assert saquon_asset["post_trade_weeks_started"] == 4
+    # Team A suffers NO -20.0 IR penalty in Trade #1 because Saquon was flipped before getting injured on Team C
+    assert saquon_asset["roster_depth_points"] > 0.0
+    assert side_a_t1["grade"] in ("A", "A-", "B+")
+    assert side_b_t1["grade"] in ("A", "A-", "B+")
+
+    # Trajectory final score matches total_trade_score
+    traj_1 = detail_1["weekly_trajectory"]
+    assert len(traj_1) == 4
+    assert traj_1[-1]["side_a_cumulative_score"] == side_a_t1["total_trade_score"]
+    assert traj_1[-1]["side_b_cumulative_score"] == side_b_t1["total_trade_score"]
+
+    # FLIPPED event names Team Gamma
+    flip_ev = next((e for e in detail_1["timeline_events"] if e["event_type"] == "FLIPPED"), None)
+    assert flip_ev is not None
+    assert "Team Gamma" in flip_ev["description"]
+
+
 def test_trades_legacy_era_no_transactions(client: FlaskClient) -> None:
     """Verifies legacy era seasons flag has_transaction_data = False."""
     res = client.get("/api/v1/trades/trends?season=2022")
