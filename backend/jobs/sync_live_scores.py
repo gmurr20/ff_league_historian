@@ -110,6 +110,24 @@ def sync_live_scores(
             league_id=target_league_id,
             scoring_period_id=target_week,
         )
+        # If week was not explicitly pinned and ESPN reports a newer currentMatchupPeriod,
+        # advance active_season.current_week and re-fetch that current week's boxscore.
+        if (
+            week is None
+            and isinstance(payload, dict)
+            and isinstance(payload.get("status"), dict)
+        ):
+            espn_cur_wk = payload["status"].get("currentMatchupPeriod")
+            if isinstance(espn_cur_wk, int) and espn_cur_wk > 0 and espn_cur_wk != target_week:
+                active_season.current_week = espn_cur_wk
+                target_week = espn_cur_wk
+                payload = espn_client.fetch_league(
+                    season_year=active_season.season_year,
+                    views=views,
+                    allow_inaccessible=True,
+                    league_id=target_league_id,
+                    scoring_period_id=target_week,
+                )
     except Exception as exc:
         logger.warning(
             "Network error querying ESPN live scores (%s). Checking local snapshot fallback...",

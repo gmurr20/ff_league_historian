@@ -277,7 +277,15 @@ def _build_team_breakdown(
         slot_pos = lu.slot_position or "BE"
         is_starter = bool(lu.is_starter and slot_pos not in ("BE", "IR"))
         actual_pts = round(float(lu.actual_points or 0.0), 2)
-        proj_pts = round(float(lu.projected_points or 0.0), 2)
+        raw_proj_pts = round(float(lu.projected_points or 0.0), 2)
+        has_game_started = bool(w_stats.get("has_game_started", False))
+        if (
+            inj_status in ("OUT", "INJURY_RESERVE", "SUSPENSION")
+            and actual_pts == 0.0
+        ):
+            proj_pts = 0.0
+        else:
+            proj_pts = raw_proj_pts
 
         entry_dict: dict[str, Any] = {
             "player_id": lu.player_id,
@@ -293,6 +301,7 @@ def _build_team_breakdown(
             "projected_points": proj_pts,
             "injury_status": inj_status,
             "is_injured": is_injured,
+            "_has_game_started": has_game_started,
         }
 
         if is_starter:
@@ -361,9 +370,26 @@ def _build_team_breakdown(
             )
         else:
             # Live / Upcoming week:
-            # Unplayed starters (actual == 0) contribute their pre-game projection;
-            # active/scored starters contribute at least their actual points scored so far.
+            # 1. If ESPN provides a live team matchup projection (totalProjectedPointsLive stored on
+            #    Matchup.home_projected / away_projected) during an in-progress week, prefer it when
+            #    it reflects real-time game progress.
+            # 2. Otherwise compute starter live projection: players whose NFL game has started/finished
+            #    (or who are OUT/IR/SUSPENSION) use their actual points unless still projected higher;
+            #    unplayed healthy starters contribute their pre-game projection.
             live_starter_proj = round(
+                sum(
+                    p["actual_points"]
+                    if (
+                        p.get("_has_game_started")
+                        or p["actual_points"] > 0
+                        or p.get("injury_status") in ("OUT", "INJURY_RESERVE", "SUSPENSION")
+                    )
+                    else p["projected_points"]
+                    for p in starters
+                ),
+                2,
+            )
+            max_starter_proj = round(
                 sum(
                     max(p["actual_points"], p["projected_points"])
                     if p["actual_points"] > 0
@@ -372,10 +398,25 @@ def _build_team_breakdown(
                 ),
                 2,
             )
-            if team_matchup_proj is not None and team_matchup_proj > 0 and raw_proj_sum == 0.0:
+            if (
+                team_matchup_proj is not None
+                and team_matchup_proj > 0
+                and starter_points > 0
+                and abs(team_matchup_proj - max_starter_proj) > 0.01
+            ):
+                # Matchup has ESPN's real-time totalProjectedPointsLive
                 projected_points = round(max(team_matchup_proj, starter_points), 2)
-            else:
+            elif team_matchup_proj is not None and team_matchup_proj > 0 and raw_proj_sum == 0.0:
+                projected_points = round(max(team_matchup_proj, starter_points), 2)
+            elif any(p.get("_has_game_started") for p in starters):
                 projected_points = max(live_starter_proj, starter_points)
+            else:
+                projected_points = max(max_starter_proj, starter_points)
+
+        for p in starters:
+            p.pop("_has_game_started", None)
+        for p in bench:
+            p.pop("_has_game_started", None)
         bench_points = round(sum(p["actual_points"] for p in bench), 2)
         opt_dec, _ = compute_optimal_score(lineup_models, roster_slots=roster_slots)
         optimal_points = max(round(float(opt_dec), 2), starter_points)

@@ -644,14 +644,13 @@ def upsert_weekly_lineups_from_payload(
     # First ensure players exist
     player_map = upsert_players_from_payload(session, payload)
 
-    # Build player injury status lookup from teams and players payloads
+    # Build player injury status and lock lookup from teams and players payloads
     injury_lookup: dict[int, tuple[str | None, bool]] = {}
+    locked_lookup: dict[int, bool] = {}
     for team_item in payload.get("teams", []):
         for t_entry in team_item.get("roster", {}).get("entries", []):
-            tp_obj = (
-                t_entry.get("playerPoolEntry", {}).get("player")
-                or t_entry.get("player", {})
-            )
+            tppe = t_entry.get("playerPoolEntry", {})
+            tp_obj = tppe.get("player") or t_entry.get("player", {})
             t_pid = t_entry.get("playerId") or tp_obj.get("id")
             if not t_pid:
                 continue
@@ -660,6 +659,10 @@ def upsert_weekly_lineups_from_payload(
                 t_status = None
             t_injured = bool(tp_obj.get("injured", False))
             injury_lookup[int(t_pid)] = (t_status, t_injured)
+            if "lineupLocked" in tppe or "rosterLocked" in tppe:
+                locked_lookup[int(t_pid)] = bool(
+                    tppe.get("lineupLocked") or tppe.get("rosterLocked")
+                )
 
     for p_item in payload.get("players", []):
         p_sub = p_item.get("player", p_item)
@@ -733,13 +736,19 @@ def upsert_weekly_lineups_from_payload(
         stats = dict(entry.get("weeklyStats") or ppe.get("weeklyStats") or {})
 
         # If actual_raw is 0 or appliedStatTotal is seasonal, check per-scoringPeriod stats on player
+        has_game_stat_entry = bool(
+            "actualPoints" in entry
+            or ("appliedStatTotal" in entry and not from_team_roster)
+        )
         p_stats = (p_obj.get("stats") or []) if isinstance(p_obj, dict) else []
         if p_stats and week > 0:
+            has_s0_for_week = False
             for s in p_stats:
                 if s.get("scoringPeriodId") == week:
                     if s.get("statSplitTypeId") not in (None, 1):
                         continue
                     if s.get("statSourceId") == 0:
+                        has_s0_for_week = True
                         actual_raw = s.get("appliedTotal", actual_raw)
                         if not stats:
                             raw_s = s.get("stats", {})
@@ -756,6 +765,7 @@ def upsert_weekly_lineups_from_payload(
                                 stats["receptions"] = int(raw_s["53"])
                     elif s.get("statSourceId") == 1:
                         proj_raw = s.get("appliedTotal", proj_raw)
+            has_game_stat_entry = has_s0_for_week
 
         # Injury tracking
         injury_status = (
@@ -780,8 +790,23 @@ def upsert_weekly_lineups_from_payload(
             if not injury_status:
                 injury_status = "INJURY_RESERVE"
 
+        lineup_locked = bool(
+            ppe.get("lineupLocked")
+            or ppe.get("rosterLocked")
+            or locked_lookup.get(pid, False)
+        )
+
+        # If a player is ruled OUT / INJURY_RESERVE / SUSPENSION and hasn't scored points,
+        # their effective projection for the week is 0.0 (ESPN leaves pre-injury statSourceId=1 in stats).
+        if (
+            injury_status in ("OUT", "INJURY_RESERVE", "SUSPENSION")
+            and float(actual_raw or 0.0) == 0.0
+        ):
+            proj_raw = 0.0
+
         stats["injury_status"] = injury_status
         stats["injured"] = injured
+        stats["has_game_started"] = bool(has_game_stat_entry or lineup_locked)
 
         actual_pts = Decimal(str(actual_raw or 0.0)).quantize(Decimal("0.01"))
         proj_pts = Decimal(str(proj_raw or 0.0)).quantize(Decimal("0.01"))

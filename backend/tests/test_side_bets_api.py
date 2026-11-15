@@ -318,6 +318,87 @@ def test_player_starter_and_bench_breakdown_and_live_status(
     assert ir_entries[0]["pro_team"] == "SF"
 
 
+def test_live_side_bet_out_player_zero_projection_and_matchup_live_projection(
+    isolated_env: tuple[FlaskClient, sessionmaker, Path],
+) -> None:
+    """Verifies starters ruled OUT with 0 actual points have projected_points=0.0 and live team projections use ESPN totalProjectedPointsLive."""
+    client, session_factory, _ = isolated_env
+    headers = {"X-Admin-Password": "commish"}
+
+    with session_factory() as session:
+        t5 = (
+            session.query(Team)
+            .filter_by(season_year=2024, espn_team_id=5)
+            .first()
+        )
+        t6 = (
+            session.query(Team)
+            .filter_by(season_year=2024, espn_team_id=6)
+            .first()
+        )
+        assert t5 is not None and t6 is not None
+
+        # Set Team 5's Week 8 live matchup projected points to 72.57 (simulating ESPN totalProjectedPointsLive)
+        w8_matchups = (
+            session.query(Matchup)
+            .filter_by(season_year=2024, week=8)
+            .all()
+        )
+        for m in w8_matchups:
+            m.is_completed = False
+            if m.home_team_id == t5.id:
+                m.home_score = Decimal("41.04")
+                m.home_projected = Decimal("72.57")
+            elif m.away_team_id == t5.id:
+                m.away_score = Decimal("41.04")
+                m.away_projected = Decimal("72.57")
+
+        # Mark one of Team 5's starters in Week 8 as OUT with 0 actual points and a stale 9.45 pre-injury projection
+        t5_starters = (
+            session.query(WeeklyLineup)
+            .filter_by(season_year=2024, week=8, team_id=t5.id, is_starter=True)
+            .all()
+        )
+        assert len(t5_starters) > 0
+        for idx, st in enumerate(t5_starters):
+            st.actual_points = Decimal("20.52") if idx < 2 else Decimal("0.00")
+        out_starter = t5_starters[-1]
+        out_starter.actual_points = Decimal("0.00")
+        out_starter.projected_points = Decimal("9.45")
+        out_starter.weekly_stats = {"injury_status": "OUT", "injured": True}
+        session.commit()
+        out_pid = out_starter.player_id
+
+    client.post(
+        "/api/v1/side-bets",
+        json={
+            "season_year": 2024,
+            "week": 8,
+            "title": "Live Projection Accuracy Test",
+            "side_a_team_ids": [5],
+            "side_b_team_ids": [6],
+            "spread_side_a": 0.0,
+            "stake_amount": 20.0,
+        },
+        headers=headers,
+    )
+
+    resp = client.get("/api/v1/side-bets?season=2024&week=8").get_json()
+    live_bet = next(b for b in resp["bets"] if b["title"] == "Live Projection Accuracy Test")
+    team_5_bd = live_bet["side_a"]["teams"][0]
+
+    # Team 5's live projection reflects ESPN's 72.57 live projection rather than inflated pre-game ~110
+    assert team_5_bd["projected_points"] == 72.57
+    assert live_bet["side_a"]["projected_points"] == 72.57
+
+    # The OUT starter has projected_points zeroed out to 0.0
+    out_player_entry = next(p for p in team_5_bd["starters"] if p["player_id"] == out_pid)
+    assert out_player_entry["injury_status"] == "OUT"
+    assert out_player_entry["actual_points"] == 0.0
+    assert out_player_entry["projected_points"] == 0.0
+
+
+
 def test_earnings_leaderboard_positive_and_negative_side_bets(
     isolated_env: tuple[FlaskClient, sessionmaker, Path],
 ) -> None:

@@ -67,11 +67,39 @@ const underdogSide = computed<'A' | 'B' | null>(() => {
 
 const spreadAbs = computed(() => (props.bet ? Math.abs(props.bet.spread_side_a) : 0));
 
+const sideALiveProjBase = computed(() => {
+  if (!props.bet) return 0;
+  if (props.bet.is_completed) return props.bet.side_a.raw_points;
+  return Math.max(props.bet.side_a.raw_points, props.bet.side_a.projected_points);
+});
+
+const sideBLiveProjBase = computed(() => {
+  if (!props.bet) return 0;
+  if (props.bet.is_completed) return props.bet.side_b.raw_points;
+  return Math.max(props.bet.side_b.raw_points, props.bet.side_b.projected_points);
+});
+
+const sideAEffectiveLiveProj = computed(() => {
+  return sideALiveProjBase.value + (underdogSide.value === 'A' ? spreadAbs.value : 0);
+});
+
+const sideBEffectiveLiveProj = computed(() => {
+  return sideBLiveProjBase.value + (underdogSide.value === 'B' ? spreadAbs.value : 0);
+});
+
+const activeTugMargin = computed(() => {
+  if (!props.bet) return 0;
+  if (props.bet.is_completed) return props.bet.margin_vs_spread;
+  return sideAEffectiveLiveProj.value - sideBEffectiveLiveProj.value;
+});
+
 const activeLeader = computed<'A' | 'B' | 'PUSH' | null>(() => {
   if (!props.bet) return null;
   if (props.bet.is_completed) return props.bet.winning_side;
-  if (isUpcoming.value) return null;
-  return props.bet.currently_covering;
+  if (Math.abs(activeTugMargin.value) < 0.08) {
+    return isUpcoming.value ? null : 'PUSH';
+  }
+  return activeTugMargin.value > 0 ? 'A' : 'B';
 });
 
 const coverMarginBannerText = computed(() => {
@@ -90,26 +118,17 @@ const coverMarginBannerText = computed(() => {
     return `Final Push — Exact 0.00 spread tie`;
   }
 
-  if (isUpcoming.value) {
-    const pMargin = props.bet.projected_margin_vs_spread;
-    const absProj = Math.abs(pMargin);
-    if (absProj < 0.08) {
-      return hasSpread.value
-        ? `Proj: Dead even w/ ${formatSpread(props.bet.side_a.spread_applied)} spread`
-        : `Proj: Dead even`;
-    }
-    return pMargin > 0
-      ? `Proj: ${nameA} covers ${formatSpread(props.bet.side_a.spread_applied)} by +${absProj.toFixed(1)} pts`
-      : `Proj: ${nameB} covers ${formatSpread(props.bet.side_b.spread_applied)} by +${absProj.toFixed(1)} pts`;
+  const pMargin = activeTugMargin.value;
+  const absProj = Math.abs(pMargin);
+  const prefix = props.bet.is_live ? 'Live Proj' : 'Proj';
+  if (absProj < 0.08) {
+    return hasSpread.value
+      ? `${prefix}: Dead even w/ ${formatSpread(props.bet.side_a.spread_applied)} spread`
+      : `${prefix}: Dead even`;
   }
-
-  if (props.bet.currently_covering === 'A') {
-    return `${nameA} currently covering ${formatSpread(props.bet.side_a.spread_applied)} by +${absMargin} pts`;
-  }
-  if (props.bet.currently_covering === 'B') {
-    return `${nameB} currently covering ${formatSpread(props.bet.side_b.spread_applied)} by +${absMargin} pts`;
-  }
-  return `Currently tied against the spread`;
+  return pMargin > 0
+    ? `${prefix}: ${nameA} covers ${formatSpread(props.bet.side_a.spread_applied)} by +${absProj.toFixed(1)} pts`
+    : `${prefix}: ${nameB} covers ${formatSpread(props.bet.side_b.spread_applied)} by +${absProj.toFixed(1)} pts`;
 });
 
 const SLOT_ORDER: Record<string, number> = {
@@ -233,14 +252,14 @@ function getTeamInitials(team: SideBetTeamBreakdown): string {
 
               <div class="text-right">
                 <div class="text-xs sm:text-sm font-bold text-slate-300 leading-none">
-                  {{ bet.side_a.projected_points.toFixed(1) }}
+                  {{ sideALiveProjBase.toFixed(1) }}
                 </div>
                 <div class="text-[10px] text-slate-500 mt-0.5">Projected</div>
               </div>
 
               <div v-if="underdogSide === 'A'" class="text-right">
                 <div class="text-xs sm:text-sm font-bold text-amber-300 leading-none">
-                  {{ (isUpcoming ? bet.side_a.projected_points + spreadAbs : bet.side_a.raw_points + spreadAbs).toFixed(2) }}
+                  {{ (bet.is_completed ? bet.side_a.raw_points + spreadAbs : sideAEffectiveLiveProj).toFixed(2) }}
                 </div>
                 <div class="text-[10px] text-amber-400/80 mt-0.5">w/ +{{ spreadAbs.toFixed(1) }}</div>
               </div>
@@ -291,14 +310,14 @@ function getTeamInitials(team: SideBetTeamBreakdown): string {
 
               <div class="text-right">
                 <div class="text-xs sm:text-sm font-bold text-slate-300 leading-none">
-                  {{ bet.side_b.projected_points.toFixed(1) }}
+                  {{ sideBLiveProjBase.toFixed(1) }}
                 </div>
                 <div class="text-[10px] text-slate-500 mt-0.5">Projected</div>
               </div>
 
               <div v-if="underdogSide === 'B'" class="text-right">
                 <div class="text-xs sm:text-sm font-bold text-amber-300 leading-none">
-                  {{ (isUpcoming ? bet.side_b.projected_points + spreadAbs : bet.side_b.raw_points + spreadAbs).toFixed(2) }}
+                  {{ (bet.is_completed ? bet.side_b.raw_points + spreadAbs : sideBEffectiveLiveProj).toFixed(2) }}
                 </div>
                 <div class="text-[10px] text-amber-400/80 mt-0.5">w/ +{{ spreadAbs.toFixed(1) }}</div>
               </div>

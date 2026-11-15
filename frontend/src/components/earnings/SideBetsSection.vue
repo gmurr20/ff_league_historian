@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import type { SideBetsResponse, SideBetDetail } from '@/types/api';
 import { fetchSideBets } from '@/api/client';
 import SideBetCard from '@/components/earnings/SideBetCard.vue';
@@ -81,8 +81,22 @@ watch(
   }
 );
 
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+
 onMounted(() => {
   loadSideBets(false);
+  pollTimer = setInterval(() => {
+    if (hasAnyLiveBets.value) {
+      loadSideBets(true);
+    }
+  }, 60_000);
+});
+
+onUnmounted(() => {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
 });
 
 function openBetDetail(bet: SideBetDetail) {

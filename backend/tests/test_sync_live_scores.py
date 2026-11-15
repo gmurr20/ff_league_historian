@@ -189,6 +189,34 @@ def _build_mock_live_payload() -> dict[str, Any]:
                                     },
                                 },
                             },
+                            {
+                                "playerId": 4723820,
+                                "lineupSlotId": 23,  # FLEX starter ruled OUT
+                                "playerPoolEntry": {
+                                    "id": 4723820,
+                                    "appliedStatTotal": 0.0,
+                                    "player": {
+                                        "id": 4723820,
+                                        "fullName": "Omar Cooper Jr.",
+                                        "defaultPositionId": 3,
+                                        "proTeamId": 11,
+                                        "stats": [
+                                            {
+                                                "scoringPeriodId": 8,
+                                                "statSourceId": 0,
+                                                "statSplitTypeId": 1,
+                                                "appliedTotal": 0.0,
+                                            },
+                                            {
+                                                "scoringPeriodId": 8,
+                                                "statSourceId": 1,
+                                                "statSplitTypeId": 1,
+                                                "appliedTotal": 9.45,
+                                            },
+                                        ],
+                                    },
+                                },
+                            },
                         ]
                     },
                 },
@@ -219,6 +247,29 @@ def _build_mock_live_payload() -> dict[str, Any]:
                             }
                         ]
                     },
+                },
+            }
+        ],
+        "teams": [
+            {
+                "id": 1,
+                "roster": {
+                    "entries": [
+                        {
+                            "playerId": 4723820,
+                            "lineupSlotId": 23,
+                            "playerPoolEntry": {
+                                "id": 4723820,
+                                "lineupLocked": True,
+                                "player": {
+                                    "id": 4723820,
+                                    "fullName": "Omar Cooper Jr.",
+                                    "injuryStatus": "OUT",
+                                    "injured": True,
+                                },
+                            },
+                        }
+                    ]
                 },
             }
         ],
@@ -272,7 +323,7 @@ def test_sync_live_scores_updates_matchups_and_lineups(db_session_and_factory: A
     assert run.status == "SUCCESS"
     assert run.season_year == 2024
     assert run.week_range == "8"
-    assert run.records_processed == 3  # 2 players on Team 1 + 1 player on Team 2
+    assert run.records_processed == 4  # 3 players on Team 1 + 1 player on Team 2
 
     # 2. Verify lightweight ESPN fetch call with mBoxscore + mMatchupScore + mRoster
     assert len(mock_client.calls) == 1
@@ -318,6 +369,20 @@ def test_sync_live_scores_updates_matchups_and_lineups(db_session_and_factory: A
     assert lamb_lineup.weekly_stats.get("injury_status") == "QUESTIONABLE"
     assert lamb_lineup.weekly_stats.get("injured") is True
 
+    cooper_lineup = (
+        session.query(WeeklyLineup)
+        .filter_by(season_year=2024, week=8, team_id=t1.id, player_id=4723820)
+        .first()
+    )
+    assert cooper_lineup is not None
+    assert cooper_lineup.slot_position == "FLEX"
+    assert cooper_lineup.is_starter is True
+    assert cooper_lineup.actual_points == Decimal("0.00")
+    assert cooper_lineup.projected_points == Decimal("0.00")
+    assert cooper_lineup.weekly_stats.get("injury_status") == "OUT"
+    assert cooper_lineup.weekly_stats.get("injured") is True
+    assert cooper_lineup.weekly_stats.get("has_game_started") is True
+
     # 5. Verify RawEspnSnapshot for (2024, "mBoxscore", 8) was stored
     snap = (
         session.query(RawEspnSnapshot)
@@ -354,7 +419,7 @@ def test_sync_live_scores_offline_snapshot_fallback(db_session_and_factory: Any)
     session.commit()
 
     assert run.status == "SUCCESS"
-    assert run.records_processed == 3
+    assert run.records_processed == 4
 
     session.refresh(matchup)
     assert matchup.home_score == Decimal("112.40")
@@ -394,7 +459,7 @@ def test_admin_sync_live_endpoint_and_meta_timestamp(
     assert data["status"] == "SUCCESS"
     assert data["season_year"] == 2024
     assert data["week_range"] == "8"
-    assert data["records_processed"] == 3
+    assert data["records_processed"] == 4
     assert data["completed_at"] is not None
 
     # 3. Verify GET /api/v1/meta exposes last_live_sync_at in last_sync
