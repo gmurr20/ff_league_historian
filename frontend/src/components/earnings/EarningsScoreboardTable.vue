@@ -2,7 +2,7 @@
 import { ref, computed, watch } from 'vue';
 import type { EarningsLeaderboardEntry } from '@/types/api';
 import TeamAvatar from '@/components/ui/TeamAvatar.vue';
-import { ArrowUpDown } from 'lucide-vue-next';
+import { ArrowUpDown, Eye, EyeOff } from 'lucide-vue-next';
 import { useLeagueMeta } from '@/composables/useLeagueMeta';
 
 const props = withDefaults(
@@ -25,6 +25,16 @@ const emit = defineEmits<{
 
 const { availableSeasons } = useLeagueMeta();
 
+// B Hoel mode: hides the Side Bets column (plus the mobile side-bets chip in
+// All-Time rows) and shows Total / Bankroll EXCLUDING side bets cash.
+const bHoelMode = ref<boolean>(false);
+
+// The total shown (and sorted by) in the Total / Bankroll column. In B Hoel
+// mode side bets are backed out; otherwise it is the raw total_earnings.
+function shownTotal(e: EarningsLeaderboardEntry): number {
+  return bHoelMode.value ? e.total_earnings - (e.side_bets_cash ?? 0) : e.total_earnings;
+}
+
 const isSeasonCompleted = computed<boolean>(() => {
   if (!props.isSingleSeason) {
     return true;
@@ -37,9 +47,23 @@ const isSeasonCompleted = computed<boolean>(() => {
 });
 
 const singleSeasonGridCols = computed<string>(() => {
+  if (bHoelMode.value) {
+    // No Bets column: #, Franchise, Wins, Bonus, Total (+ Podium on sm when completed)
+    return isSeasonCompleted.value
+      ? 'grid-cols-[18px_1fr_38px_38px_48px] sm:grid-cols-[28px_1fr_54px_58px_62px_72px]'
+      : 'grid-cols-[18px_1fr_38px_38px_48px] sm:grid-cols-[28px_1fr_58px_60px_76px]';
+  }
   return isSeasonCompleted.value
     ? 'grid-cols-[18px_1fr_38px_38px_42px_48px] sm:grid-cols-[28px_1fr_54px_58px_58px_62px_72px]'
     : 'grid-cols-[18px_1fr_38px_38px_42px_48px] sm:grid-cols-[28px_1fr_58px_60px_60px_76px]';
+});
+
+const allTimeGridCols = computed<string>(() => {
+  if (bHoelMode.value) {
+    // No Bets column: #, Franchise, Wins, Titles, Bankroll (+ Bonus & Podium on sm)
+    return 'grid-cols-[20px_1fr_44px_56px_60px] sm:grid-cols-[28px_1fr_52px_58px_62px_68px_76px]';
+  }
+  return 'grid-cols-[20px_1fr_44px_56px_60px] sm:grid-cols-[28px_1fr_52px_58px_58px_62px_68px_76px]';
 });
 
 const isAllTime = computed<boolean>(() => !props.isSingleSeason);
@@ -127,7 +151,7 @@ function sortList(list: EarningsLeaderboardEntry[]): EarningsLeaderboardEntry[] 
         return (aRank - bRank) * dir;
       }
       case 'cash':
-        return (a.total_earnings - b.total_earnings) * dir;
+        return (shownTotal(a) - shownTotal(b)) * dir;
       case 'wins':
         return (
           (a.weekly_wins_cash - b.weekly_wins_cash ||
@@ -154,7 +178,7 @@ function sortList(list: EarningsLeaderboardEntry[]): EarningsLeaderboardEntry[] 
       case 'seasons':
         return (a.seasons_played - b.seasons_played) * dir;
       default:
-        return (a.total_earnings - b.total_earnings) * dir;
+        return (shownTotal(a) - shownTotal(b)) * dir;
     }
   });
 }
@@ -209,14 +233,34 @@ const displayedFranchisesCount = computed<number>(() => {
         <h3 class="text-xs sm:text-sm font-black uppercase tracking-tight text-slate-100 truncate">
           {{ isSingleSeason ? 'Earnings Standings' : 'All-Time Bankroll' }}
         </h3>
-        <span class="text-[11px] font-mono text-slate-500 uppercase tracking-wider truncate">
+        <span class="hidden xs:inline text-[11px] font-mono text-slate-500 uppercase tracking-wider truncate">
           ({{ displayedFranchisesCount }} Franchises)
         </span>
       </div>
 
-      <div class="flex items-center gap-1 text-[11px] font-mono text-slate-400">
-        <ArrowUpDown class="w-3 h-3 text-slate-500" />
-        <span class="hidden sm:inline">Tap header to sort</span>
+      <div class="flex items-center gap-2 shrink-0">
+        <!-- B Hoel Mode Toggle: hides the Bets column; totals exclude side bets -->
+        <button
+          type="button"
+          :aria-pressed="bHoelMode"
+          title="B Hoel mode: hide side bets; totals exclude side bets"
+          class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-mono font-bold transition-all cursor-pointer"
+          :class="
+            bHoelMode
+              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm'
+              : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+          "
+          @click="bHoelMode = !bHoelMode"
+        >
+          <EyeOff v-if="bHoelMode" class="w-3 h-3" />
+          <Eye v-else class="w-3 h-3" />
+          <span>B Hoel mode</span>
+        </button>
+
+        <div class="hidden xs:flex items-center gap-1 text-[11px] font-mono text-slate-400">
+          <ArrowUpDown class="w-3 h-3 text-slate-500" />
+          <span class="hidden sm:inline">Tap header to sort</span>
+        </div>
       </div>
     </div>
 
@@ -254,6 +298,7 @@ const displayedFranchisesCount = computed<number>(() => {
         Bonus
       </button>
       <button
+        v-if="!bHoelMode"
         type="button"
         class="text-right font-bold hover:text-slate-200 transition-colors"
         :class="sortCol === 'bets' ? 'text-amber-400' : ''"
@@ -276,16 +321,18 @@ const displayedFranchisesCount = computed<number>(() => {
         type="button"
         class="text-right font-bold hover:text-slate-200 transition-colors"
         :class="sortCol === 'cash' ? 'text-emerald-400' : ''"
+        :title="bHoelMode ? 'Total (excludes side bets)' : undefined"
         @click="toggleSort('cash')"
       >
-        Total
+        {{ bHoelMode ? 'Total*' : 'Total' }}
       </button>
     </div>
 
     <!-- COLUMN HEADERS: ALL-TIME CAREER MODE -->
     <div
       v-else
-      class="grid grid-cols-[20px_1fr_44px_56px_60px] sm:grid-cols-[28px_1fr_52px_58px_58px_62px_68px_76px] items-center px-2.5 sm:px-3.5 py-2 bg-slate-900/90 border-b border-slate-800/90 text-[10px] font-mono uppercase tracking-tight sm:tracking-wider text-slate-400 select-none"
+      class="grid items-center px-2.5 sm:px-3.5 py-2 bg-slate-900/90 border-b border-slate-800/90 text-[10px] font-mono uppercase tracking-tight sm:tracking-wider text-slate-400 select-none"
+      :class="allTimeGridCols"
     >
       <button
         type="button"
@@ -315,6 +362,7 @@ const displayedFranchisesCount = computed<number>(() => {
         Bonus
       </button>
       <button
+        v-if="!bHoelMode"
         type="button"
         class="hidden sm:block text-right font-bold hover:text-slate-200 transition-colors"
         :class="sortCol === 'bets' ? 'text-amber-400' : ''"
@@ -345,9 +393,10 @@ const displayedFranchisesCount = computed<number>(() => {
         type="button"
         class="text-right font-bold hover:text-slate-200 transition-colors"
         :class="sortCol === 'cash' ? 'text-emerald-400' : ''"
+        :title="bHoelMode ? 'Bankroll (excludes side bets)' : undefined"
         @click="toggleSort('cash')"
       >
-        Bankroll
+        {{ bHoelMode ? 'Bankroll*' : 'Bankroll' }}
       </button>
     </div>
 
@@ -393,7 +442,7 @@ const displayedFranchisesCount = computed<number>(() => {
                 ? 'bg-amber-400'
                 : getManagerRank(row.entry) <= 3
                 ? 'bg-emerald-500/80'
-                : row.entry.total_earnings > 0
+                : shownTotal(row.entry) > 0
                 ? 'bg-emerald-600/40'
                 : 'bg-transparent'
             "
@@ -485,7 +534,7 @@ const displayedFranchisesCount = computed<number>(() => {
             </div>
 
             <!-- Side Bets Cash -->
-            <div class="text-right font-mono tabular-nums">
+            <div v-if="!bHoelMode" class="text-right font-mono tabular-nums">
               <span
                 class="text-xs sm:text-sm font-bold"
                 :class="
@@ -515,14 +564,14 @@ const displayedFranchisesCount = computed<number>(() => {
               <span
                 class="text-xs sm:text-sm font-black"
                 :class="
-                  row.entry.total_earnings > 0
+                  shownTotal(row.entry) > 0
                     ? 'text-emerald-400'
-                    : row.entry.total_earnings < 0
+                    : shownTotal(row.entry) < 0
                     ? 'text-rose-400'
                     : 'text-slate-600'
                 "
               >
-                {{ formatCash(row.entry.total_earnings, 0) }}
+                {{ formatCash(shownTotal(row.entry), 0) }}
               </span>
             </div>
           </div>
@@ -530,7 +579,8 @@ const displayedFranchisesCount = computed<number>(() => {
           <!-- ROW: ALL-TIME CAREER MODE -->
           <div
             v-else
-            class="grid grid-cols-[20px_1fr_44px_56px_60px] sm:grid-cols-[28px_1fr_52px_58px_58px_62px_68px_76px] items-center px-2.5 sm:px-3.5 py-2.5"
+            class="grid items-center px-2.5 sm:px-3.5 py-2.5"
+            :class="allTimeGridCols"
           >
             <!-- Rank -->
             <div
@@ -599,7 +649,7 @@ const displayedFranchisesCount = computed<number>(() => {
                     <span class="text-slate-600 shrink-0">·</span>
                     <span class="font-mono text-[9.5px] text-emerald-400/90 font-medium shrink-0">#{{ activeRankMap.get(row.entry.manager_id) }} Active</span>
                   </template>
-                  <template v-if="(row.entry.side_bets_cash ?? 0) !== 0">
+                  <template v-if="!bHoelMode && (row.entry.side_bets_cash ?? 0) !== 0">
                     <span class="sm:hidden text-slate-600 shrink-0">·</span>
                     <span
                       class="sm:hidden font-mono text-[9px] font-bold px-1 py-0.2 rounded shrink-0"
@@ -637,7 +687,7 @@ const displayedFranchisesCount = computed<number>(() => {
             </div>
 
             <!-- Career Side Bets Cash (Hidden on mobile) -->
-            <div class="hidden sm:block text-right font-mono tabular-nums">
+            <div v-if="!bHoelMode" class="hidden sm:block text-right font-mono tabular-nums">
               <span
                 class="text-xs sm:text-sm font-bold"
                 :class="
@@ -698,19 +748,27 @@ const displayedFranchisesCount = computed<number>(() => {
               <span
                 class="text-xs sm:text-sm font-black"
                 :class="
-                  row.entry.total_earnings > 0
+                  shownTotal(row.entry) > 0
                     ? 'text-emerald-400'
-                    : row.entry.total_earnings < 0
+                    : shownTotal(row.entry) < 0
                     ? 'text-rose-400'
                     : 'text-slate-600'
                 "
               >
-                {{ formatCash(row.entry.total_earnings, 0) }}
+                {{ formatCash(shownTotal(row.entry), 0) }}
               </span>
             </div>
           </div>
         </div>
       </template>
+    </div>
+
+    <!-- B Hoel mode footnote: explains the asterisk on Total / Bankroll -->
+    <div
+      v-if="bHoelMode"
+      class="px-3 sm:px-4 py-2 border-t border-slate-800/60 text-[10px] sm:text-[11px] text-slate-500"
+    >
+      * Totals exclude side bets
     </div>
   </div>
 </template>
