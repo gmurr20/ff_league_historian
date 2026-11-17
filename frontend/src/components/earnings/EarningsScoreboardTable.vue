@@ -27,7 +27,8 @@ const { availableSeasons } = useLeagueMeta();
 
 // B Hoel mode: hides the Side Bets column (plus the mobile side-bets chip in
 // All-Time rows) and shows Total / Bankroll EXCLUDING side bets cash.
-const bHoelMode = ref<boolean>(false);
+// On by default; the toggle turns it off to reveal side bets.
+const bHoelMode = ref<boolean>(true);
 
 // The total shown (and sorted by) in the Total / Bankroll column. In B Hoel
 // mode side bets are backed out; otherwise it is the raw total_earnings.
